@@ -5,6 +5,7 @@ import { createPortal } from "react-dom"
 import { useStore } from "@/lib/store"
 import { BeaconMarker } from "@/components/beacon-marker"
 import { MapFallback } from "@/components/map-fallback"
+import { cn } from "@/lib/utils"
 import type { LatLng } from "@/lib/types"
 
 const API_KEY = process.env.NEXT_PUBLIC_YANDEX_MAPS_API_KEY
@@ -55,6 +56,7 @@ export function YandexMap() {
     settings,
     centerRequest,
     placeBeacon,
+    theme,
   } = useStore()
 
   const containerRef = useRef<HTMLDivElement>(null)
@@ -226,7 +228,16 @@ export function YandexMap() {
 
   return (
     <div className="absolute inset-0 overflow-hidden">
-      <div ref={containerRef} className="absolute inset-0" aria-label="Карта Санкт-Петербурга" />
+      <div
+        ref={containerRef}
+        className={cn(
+          "absolute inset-0",
+          // Only apply dark filter to the real Yandex tiles (light base map).
+          // The fallback SVG is already dark so no filter needed there.
+          status === "ready" && theme === "dark" && "map-dark-filter",
+        )}
+        aria-label="Карта Санкт-Петербурга"
+      />
       {status === "loading" && (
         <div className="absolute inset-0 grid animate-fade-in place-items-center bg-background">
           <div className="flex items-center gap-3 text-muted-foreground">
