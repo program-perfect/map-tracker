@@ -92,7 +92,7 @@ function GeofenceCard({
           min={100}
           max={3000}
           step={50}
-          onValueChange={([v]) => onChange({ radius: v })}
+          onValueChange={(v) => onChange({ radius: Array.isArray(v) ? v[0] : v })}
           aria-label="Радиус геозоны"
         />
       </div>

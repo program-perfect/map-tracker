@@ -185,12 +185,25 @@ export function YandexMap() {
 
   return (
     <div className="absolute inset-0 overflow-hidden">
-      {/* container is taller than the viewport so the Yandex logo/copyright strip
-          at the very bottom is cropped out of view */}
+      {/* hide Yandex logo + copyright strip */}
+      <style>{`
+        [class*="ymaps"][class*="-copyright"],
+        [class*="ymaps"][class*="-copyrights-pane"],
+        [class*="ymaps"][class*="-gototech"] {
+          display: none !important;
+        }
+      `}</style>
+      {/* container is taller than the viewport so any residual bottom strip is cropped */}
       <div
         ref={containerRef}
-        className={cn("map-canvas absolute inset-x-0 top-0", !layers.labels && "labels-off")}
-        style={{ height: "calc(100% + 26px)" }}
+        className="absolute inset-x-0 top-0"
+        style={{
+          height: "calc(100% + 26px)",
+          filter: layers.labels
+            ? "brightness(0.2) contrast(1.35) saturate(0.45) hue-rotate(200deg)"
+            : "brightness(0.17) contrast(1.4) saturate(0.3) hue-rotate(200deg)",
+          transition: "filter 0.5s cubic-bezier(0.22,1,0.36,1)",
+        }}
         aria-label="Карта Санкт-Петербурга"
       />
       {status === "loading" && (

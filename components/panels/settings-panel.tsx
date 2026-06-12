@@ -89,7 +89,7 @@ function SliderRow({
         max={max}
         step={step}
         disabled={disabled}
-        onValueChange={([v]) => onChange(v)}
+        onValueChange={(v) => onChange(Array.isArray(v) ? v[0] : v)}
         aria-label={label}
       />
     </div>
