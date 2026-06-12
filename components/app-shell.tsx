@@ -29,7 +29,7 @@ export function AppShell() {
             <DesktopRail />
           </div>
           {/* left sliding panel */}
-          <div className="pointer-events-auto h-full w-[340px] border-r border-border bg-background/95 shadow-xl backdrop-blur">
+          <div className="glass-strong pointer-events-auto h-full w-[340px] animate-fade-in border-y-0 border-l-0">
             <PanelContent />
           </div>
           {/* spacer for map interaction */}
@@ -81,7 +81,7 @@ export function AppShell() {
 
         {/* bottom sheet panel (only when a non-map panel is active) */}
         {activePanel !== "map" ? (
-          <div className="pointer-events-auto absolute inset-x-0 bottom-[84px] mx-2 max-h-[55dvh] overflow-hidden rounded-2xl border border-border bg-background/97 shadow-2xl backdrop-blur">
+          <div className="glass-strong pointer-events-auto absolute inset-x-0 bottom-[84px] mx-2 max-h-[55dvh] animate-sheet-up overflow-hidden rounded-2xl">
             <div className="mx-auto mt-2 h-1 w-10 rounded-full bg-border" />
             <div className="h-[52dvh]">
               <PanelContent />
@@ -104,7 +104,7 @@ function MobileMapStrip() {
   const { settings, speedKmh, street, moving, moveOnce } = useStore()
   if (!settings.visible) return null
   return (
-    <div className="pointer-events-auto absolute inset-x-0 bottom-[84px] mx-2 flex items-center gap-3 rounded-2xl border border-border bg-background/95 px-3 py-2.5 shadow-xl backdrop-blur">
+    <div className="glass pointer-events-auto absolute inset-x-0 bottom-[84px] mx-2 flex animate-sheet-up items-center gap-3 rounded-2xl px-3 py-2.5">
       <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-beacon/15">
         <span className="size-2.5 rounded-full bg-beacon" />
       </span>
@@ -117,7 +117,7 @@ function MobileMapStrip() {
       <button
         type="button"
         onClick={moveOnce}
-        className="shrink-0 rounded-xl bg-primary px-3 py-2 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+        className="shrink-0 rounded-xl bg-primary px-3 py-2 text-xs font-medium text-primary-foreground transition-all hover:bg-primary/90 active:scale-90"
       >
         Сместить
       </button>

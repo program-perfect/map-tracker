@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react"
 import { useStore } from "@/lib/store"
 import { BeaconMarker } from "@/components/beacon-marker"
 import { MapFallback } from "@/components/map-fallback"
+import { cn } from "@/lib/utils"
 import type { LatLng } from "@/lib/types"
 
 const API_KEY = process.env.NEXT_PUBLIC_YANDEX_MAPS_API_KEY
@@ -39,7 +40,6 @@ type Status = "loading" | "ready" | "fallback"
 
 export function YandexMap() {
   const {
-    theme,
     layers,
     zoom,
     setZoom,
@@ -74,9 +74,14 @@ export function YandexMap() {
             zoom,
             controls: [],
           },
-          { suppressMapOpenBlock: true, yandexMapDisablePoiInteractivity: true },
+          {
+            suppressMapOpenBlock: true,
+            yandexMapDisablePoiInteractivity: true,
+          },
         )
         mapRef.current = map
+        // force dark ("black") map tiles regardless of UI theme
+        map.options.set("theme", "dark")
         trafficRef.current = new ymaps.control.TrafficControl({ shown: false })
         map.controls.add(trafficRef.current)
 
@@ -120,18 +125,18 @@ export function YandexMap() {
     }
   }
 
-  // theme -> map tiles
-  useEffect(() => {
-    const map = mapRef.current
-    if (!map) return
-    map.options.set("theme", theme === "dark" ? "dark" : "light")
-  }, [theme, status])
+  // map tiles are forced to the dark ("black") theme regardless of UI theme
 
   // layers
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
-    const type = layers.transport ? "yandex#publicMap" : "yandex#map"
+    // when labels are off, use the skeleton (label-less) map; otherwise public/standard
+    const type = !layers.labels
+      ? "yandex#map"
+      : layers.transport
+        ? "yandex#publicMap"
+        : "yandex#map"
     map.setType(type)
     if (trafficRef.current) {
       if (layers.traffic) trafficRef.current.showTraffic()
@@ -179,19 +184,24 @@ export function YandexMap() {
   }
 
   return (
-    <div className="absolute inset-0">
-      <div ref={containerRef} className="absolute inset-0" aria-label="Карта Санкт-Петербурга" />
+    <div className="absolute inset-0 overflow-hidden">
+      {/* container is taller than the viewport so the Yandex logo/copyright strip
+          at the very bottom is cropped out of view */}
+      <div
+        ref={containerRef}
+        className={cn("map-canvas absolute inset-x-0 top-0", !layers.labels && "labels-off")}
+        style={{ height: "calc(100% + 26px)" }}
+        aria-label="Карта Санкт-Петербурга"
+      />
       {status === "loading" && (
-        <div className="absolute inset-0 grid place-items-center bg-background">
+        <div className="absolute inset-0 grid animate-fade-in place-items-center bg-background">
           <div className="flex items-center gap-3 text-muted-foreground">
             <span className="size-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
             <span className="text-sm">Загрузка карты…</span>
           </div>
         </div>
       )}
-      {settings.visible && pixel && (
-        <BeaconMarker x={pixel.x} y={pixel.y} />
-      )}
+      {settings.visible && pixel && <BeaconMarker x={pixel.x} y={pixel.y} />}
     </div>
   )
 }

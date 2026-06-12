@@ -41,7 +41,7 @@ export function BeaconMarker({ x, y }: { x: number; y: number }) {
       {/* popup */}
       {open && (
         <div
-          className="pointer-events-auto absolute bottom-full left-1/2 mb-3 w-60 -translate-x-1/2 rounded-xl border border-border bg-popover/95 p-3 text-popover-foreground shadow-xl backdrop-blur"
+          className="glass-strong pointer-events-auto absolute bottom-full left-1/2 mb-3 w-60 origin-bottom -translate-x-1/2 animate-panel-in rounded-xl p-3 text-popover-foreground"
           onMouseLeave={() => setOpen(false)}
         >
           <div className="mb-2 flex items-center justify-between">

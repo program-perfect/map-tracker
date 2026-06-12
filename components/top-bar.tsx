@@ -27,7 +27,7 @@ function QuickToggle({
       aria-pressed={on}
       title={label}
       className={cn(
-        "grid size-9 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
+        "grid size-9 place-items-center rounded-lg text-muted-foreground transition-all hover:bg-accent hover:text-foreground active:scale-90",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         on && accent === "primary" && "bg-primary/15 text-primary",
         on && accent === "warm" && "bg-warm/20 text-warm",
@@ -43,9 +43,9 @@ export function TopBar() {
   const { theme, toggleTheme, settings, updateSettings } = useStore()
 
   return (
-    <div className="pointer-events-auto flex items-center gap-1 rounded-2xl border border-border bg-card/90 p-1.5 shadow-lg backdrop-blur">
+    <div className="glass pointer-events-auto flex animate-fade-in items-center gap-1 rounded-2xl p-1.5">
       <div className="flex items-center gap-2 px-2">
-        <span className="grid size-7 place-items-center rounded-lg bg-primary text-primary-foreground">
+        <span className="grid size-7 place-items-center rounded-lg bg-primary text-primary-foreground shadow-sm shadow-primary/40">
           <Radar className="size-4" />
         </span>
         <span className="hidden text-sm font-semibold tracking-tight sm:block">

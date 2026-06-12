@@ -9,17 +9,27 @@ import { SettingsPanel } from "@/components/panels/settings-panel"
 
 export function PanelContent() {
   const { activePanel } = useStore()
-  switch (activePanel) {
-    case "objects":
-      return <ObjectsPanel />
-    case "history":
-      return <HistoryPanel />
-    case "geofences":
-      return <GeofencesPanel />
-    case "settings":
-      return <SettingsPanel />
-    case "map":
-    default:
-      return <MapPanel />
-  }
+
+  const panel = (() => {
+    switch (activePanel) {
+      case "objects":
+        return <ObjectsPanel />
+      case "history":
+        return <HistoryPanel />
+      case "geofences":
+        return <GeofencesPanel />
+      case "settings":
+        return <SettingsPanel />
+      case "map":
+      default:
+        return <MapPanel />
+    }
+  })()
+
+  // re-mount on panel change to trigger a smooth fade/slide entrance
+  return (
+    <div key={activePanel} className="h-full animate-fade-in">
+      {panel}
+    </div>
+  )
 }
