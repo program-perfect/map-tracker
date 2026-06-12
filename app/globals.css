@@ -239,7 +239,7 @@
    Applied only to the map container div when theme === "dark" AND the real
    Yandex v2.1 tiles are loaded. Inverts the light base map to dark. */
 .map-dark-filter {
-  filter: invert(90%) hue-rotate(180deg);
+  filter: invert(92%) hue-rotate(220deg) saturate(1.3) brightness(0.88);
   transition: filter 0.5s var(--ease-glass, ease);
 }
 
