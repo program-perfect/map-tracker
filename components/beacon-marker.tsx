@@ -26,10 +26,23 @@ export function BeaconMarker({
           : { left: x, top: y, transform: "translate(-50%, -50%)" }
       }
     >
-      {/* pulse ring */}
+      {/* outer slow pulse ring */}
       {settings.pulseEnabled && (
         <span
-          className="beacon-ring absolute left-1/2 top-1/2 -z-10 size-5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-beacon"
+          className="beacon-ring absolute left-1/2 top-1/2 -z-10 size-7 -translate-x-1/2 -translate-y-1/2 rounded-full"
+          style={{ background: "var(--beacon)", opacity: 0.35 }}
+          aria-hidden
+        />
+      )}
+      {/* inner faster pulse ring */}
+      {settings.pulseEnabled && (
+        <span
+          className="beacon-ring absolute left-1/2 top-1/2 -z-10 size-5 -translate-x-1/2 -translate-y-1/2 rounded-full"
+          style={{
+            background: "var(--beacon)",
+            opacity: 0.55,
+            animationDuration: `${Math.max(600, (settings.pulseDurationMs ?? 1800) * 0.6)}ms`,
+          }}
           aria-hidden
         />
       )}
@@ -40,14 +53,34 @@ export function BeaconMarker({
         onClick={() => setOpen((o) => !o)}
         onMouseEnter={() => setOpen(true)}
         className={cn(
-          "pointer-events-auto relative grid size-5 cursor-pointer place-items-center rounded-full bg-beacon ring-2 ring-card shadow-lg transition-transform",
-          "hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beacon",
+          "pointer-events-auto relative grid size-5 cursor-pointer place-items-center rounded-full transition-transform",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beacon",
           moving && "scale-110",
         )}
+        style={{
+          background:
+            "radial-gradient(circle at 35% 30%, oklch(0.78 0.22 27), oklch(0.52 0.28 27) 60%, oklch(0.4 0.26 27))",
+          boxShadow: [
+            "0 0 0 2px oklch(0.95 0.01 27 / 0.9)",
+            "0 0 8px 2px oklch(0.62 0.26 27 / 0.85)",
+            "0 0 18px 5px oklch(0.62 0.26 27 / 0.55)",
+            "0 0 36px 10px oklch(0.62 0.26 27 / 0.3)",
+          ].join(", "),
+        }}
         aria-label="Маяк: показать информацию о передвижении"
         aria-expanded={open}
       >
-        <span className="size-1.5 rounded-full bg-beacon-foreground" />
+        {/* shine highlight */}
+        <span
+          className="absolute left-[22%] top-[14%] size-[32%] rounded-full"
+          style={{
+            background:
+              "radial-gradient(circle, rgba(255,255,255,0.75) 0%, transparent 70%)",
+          }}
+          aria-hidden
+        />
+        {/* center pip */}
+        <span className="size-1.5 rounded-full bg-white/90 shadow-sm" />
       </button>
 
       {/* popup */}

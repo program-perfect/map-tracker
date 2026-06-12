@@ -1,6 +1,6 @@
 "use client"
 
-import { Navigation, Play, Pause, Hexagon, LogIn, LogOut, Trash2, Crosshair } from "lucide-react"
+import { Navigation, Play, Pause, Hexagon, LogIn, LogOut, Trash2, Crosshair, MapPin } from "lucide-react"
 import { useStore } from "@/lib/store"
 import { PanelHeader } from "@/components/panels/panel-header"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -16,6 +16,7 @@ const EVENT_META: Record<
   stop: { icon: Pause, tone: "text-muted-foreground" },
   "geofence-enter": { icon: LogIn, tone: "text-primary" },
   "geofence-exit": { icon: LogOut, tone: "text-beacon" },
+  manual: { icon: MapPin, tone: "text-warm" },
 }
 
 function timeFmt(at: number) {
