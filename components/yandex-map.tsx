@@ -56,6 +56,9 @@ export function YandexMap() {
   const placemarkRef  = useRef<any>(null)
   const trafficRef    = useRef<any>(null)
 
+  // DOM node that Yandex renders the custom placemark into, so we can portal BeaconMarker there
+  const [markerHost, setMarkerHost] = useState<HTMLElement | null>(null)
+
   // Stable refs so event handlers never capture stale values
   const placeBeaconRef = useRef(placeBeacon)
   placeBeaconRef.current = placeBeacon
@@ -65,9 +68,6 @@ export function YandexMap() {
   zoomRef.current = zoom
 
   const [status, setStatus] = useState<Status>(API_KEY ? "loading" : "error")
-  const [markerContainer, setMarkerContainer] = useState<HTMLElement | null>(null)
-
-  // ── Init v2.1 map ──────────────────────────────────────────────────────────
   useEffect(() => {
     if (!API_KEY) return
     let cancelled = false
@@ -101,26 +101,39 @@ export function YandexMap() {
           placeBeaconRef.current([coords[0], coords[1]])
         })
 
-        // Invisible placemark so we can read geo→pixel position
+        // Custom HTML placemark — Yandex handles all geo→pixel projection internally.
+        // We create a host <div>, portal our React BeaconMarker into it, and pass
+        // it to ymaps as an HTML layout so it always sits exactly on the coordinate.
+        const host = document.createElement("div")
+        host.style.cssText = "position:relative;width:0;height:0;overflow:visible;"
+
+        const Layout = ymaps.templateLayoutFactory.createClass(
+          '<div id="beacon-layout-host" style="position:relative;width:0;height:0;overflow:visible;"></div>',
+          {
+            build() {
+              Layout.superclass.build.call(this)
+              const el = this.getParentElement().querySelector("#beacon-layout-host")
+              if (el && !cancelled) setMarkerHost(el as HTMLElement)
+            },
+            clear() {
+              setMarkerHost(null)
+              Layout.superclass.clear.call(this)
+            },
+          },
+        )
+
         const placemark = new ymaps.Placemark(
           [position[0], position[1]],
           {},
-          { visible: false },
+          {
+            iconLayout: Layout,
+            iconShape: { type: "Circle", coordinates: [0, 0], radius: 14 },
+          },
         )
         placemarkRef.current = placemark
         map.geoObjects.add(placemark)
 
-        // Overlay div that we position via geo→pixel projection
-        const markerEl = document.createElement("div")
-        markerEl.style.cssText =
-          "position:absolute;top:0;left:0;width:0;height:0;overflow:visible;pointer-events:none;z-index:500;"
-        containerRef.current.style.position = "relative"
-        containerRef.current.appendChild(markerEl)
-
-        if (!cancelled) {
-          setMarkerContainer(markerEl)
-          setStatus("ready")
-        }
+        if (!cancelled) setStatus("ready")
       })
       .catch(() => { if (!cancelled) setStatus("error") })
 
@@ -175,39 +188,12 @@ export function YandexMap() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [centerRequest])
 
-  // ── Sync placemark & marker overlay position ───────────────────────────────
+  // ── Sync placemark coordinate when position changes ────────────────────────
   useEffect(() => {
     if (placemarkRef.current) {
       try { placemarkRef.current.geometry.setCoordinates([position[0], position[1]]) } catch {}
     }
   }, [position])
-
-  useEffect(() => {
-    const map = mapRef.current
-    if (!map || !markerContainer) return
-
-    function updatePos() {
-      if (!map || !markerContainer) return
-      try {
-        const px = map.converter.geoToPage([position[0], position[1]])
-        if (!px) return
-        const rect = containerRef.current?.getBoundingClientRect()
-        if (!rect) return
-        // px is in page coordinates; subtract container offset to get local coords
-        const mapEl = map.container.getElement()
-        const mapRect = mapEl?.getBoundingClientRect() ?? rect
-        markerContainer.style.transform = `translate(${px[0] - mapRect.left}px, ${px[1] - mapRect.top}px)`
-      } catch {}
-    }
-
-    updatePos()
-    map.events.add("actiontick",    updatePos)
-    map.events.add("boundschange",  updatePos)
-    return () => {
-      map.events.remove("actiontick",   updatePos)
-      map.events.remove("boundschange", updatePos)
-    }
-  }, [position, markerContainer, status])
 
   // ── Render ─────────────────────────────────────────────────────────────────
   // The outer wrapper overflows by CROP_PX on all sides so the Yandex logo
@@ -254,9 +240,10 @@ export function YandexMap() {
         </div>
       )}
 
-      {/* Beacon marker — rendered into the positioned overlay div */}
-      {markerContainer && settings.visible && status === "ready" &&
-        createPortal(<BeaconMarker centered />, markerContainer)}
+      {/* Beacon marker — portalled into Yandex's own placemark DOM node so
+          the library handles geo→pixel positioning with no manual math */}
+      {markerHost && settings.visible && status === "ready" &&
+        createPortal(<BeaconMarker centered />, markerHost)}
     </div>
   )
 }
