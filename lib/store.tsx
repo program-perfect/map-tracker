@@ -67,6 +67,7 @@ const DEFAULT_SETTINGS: BeaconSettings = {
   pulseScale: 3,
   soundEnabled: false,
   soundVolume: 0.4,
+  mapHue: 40,
 }
 
 const INITIAL_OBJECTS: TrackedObject[] = [
@@ -233,12 +234,13 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
     root.classList.toggle("light", theme === "light")
   }, [theme])
 
-  // pulse CSS variables
+  // pulse + map CSS variables
   useEffect(() => {
     const root = document.documentElement
     root.style.setProperty("--beacon-pulse-duration", `${settings.pulseDurationMs}ms`)
     root.style.setProperty("--beacon-pulse-scale", String(settings.pulseScale))
-  }, [settings.pulseDurationMs, settings.pulseScale])
+    root.style.setProperty("--map-hue", `${settings.mapHue}deg`)
+  }, [settings.pulseDurationMs, settings.pulseScale, settings.mapHue])
 
   const toggleTheme = useCallback(() => {
     setTheme((t) => (t === "dark" ? "light" : "dark"))

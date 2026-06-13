@@ -239,8 +239,12 @@
    Applied only to the map container div when theme === "dark" AND the real
    Yandex v2.1 tiles are loaded. Inverts the light base map to dark. */
 .map-dark-filter {
-  filter: invert(92%) hue-rotate(220deg) saturate(1.3) brightness(0.88);
-  transition: filter 0.5s var(--ease-glass, ease);
+  /* --map-hue is set by the store (default 40deg).
+     invert(92%) flips the light Yandex tiles to dark; hue-rotate shifts
+     the resulting green-teal palette. 40deg = blue/violet (opposite to
+     the natural 220deg green side). Adjustable in Settings → Карта. */
+  filter: invert(92%) hue-rotate(var(--map-hue, 40deg)) saturate(1.3) brightness(0.88);
+  transition: filter 0.4s ease;
 }
 
 /* ===== Smooth entrance animations ===== */

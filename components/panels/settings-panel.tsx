@@ -97,7 +97,7 @@ function SliderRow({
 }
 
 export function SettingsPanel() {
-  const { settings, updateSettings, theme, toggleTheme } = useStore()
+  const { settings, updateSettings, theme, toggleTheme, zoom, setZoom } = useStore()
 
   return (
     <div className="flex h-full flex-col">
@@ -118,6 +118,34 @@ export function SettingsPanel() {
               checked={theme === "dark"}
               onChange={toggleTheme}
             />
+          </Section>
+
+          <Section title="Карта">
+            <SliderRow
+              label="Масштаб"
+              value={zoom}
+              display={`${zoom}`}
+              min={5}
+              max={19}
+              step={1}
+              onChange={(v) => setZoom(v)}
+            />
+            <div className="h-px bg-border" />
+            <SliderRow
+              label="Оттенок тёмной карты"
+              value={settings.mapHue}
+              display={`${settings.mapHue}°`}
+              min={0}
+              max={359}
+              step={1}
+              disabled={theme !== "dark"}
+              onChange={(v) => updateSettings({ mapHue: v })}
+            />
+            {theme !== "dark" && (
+              <p className="text-xs text-muted-foreground">
+                Доступно только в тёмной теме
+              </p>
+            )}
           </Section>
 
           <Section title="Передвижение">

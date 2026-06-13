@@ -58,4 +58,6 @@ export interface BeaconSettings {
   // sound
   soundEnabled: boolean
   soundVolume: number
+  // map
+  mapHue: number  // hue-rotate degrees for dark map filter (0–360)
 }
