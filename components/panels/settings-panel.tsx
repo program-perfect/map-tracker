@@ -15,6 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { playBeep } from "@/lib/sound"
+import { getSliderNumber } from "@/lib/slider-value"
 import type { Direction } from "@/lib/types"
 
 const DIRECTIONS: { value: Direction; label: string }[] = [
@@ -95,12 +96,12 @@ function SliderRow({
         <span className="tabular-nums text-muted-foreground">{display}</span>
       </div>
       <Slider
-        value={[value]}
+        value={value}
         min={min}
         max={max}
         step={step}
         disabled={disabled}
-        onValueChange={(vals) => onChange((vals as number[])[0])}
+        onValueChange={(next) => onChange(getSliderNumber(next))}
         aria-label={label}
       />
     </div>
@@ -141,12 +142,12 @@ function IntervalRow({
       </div>
       {/* coarse slider: 100 ms – 10 s logarithmic feel via step 100 */}
       <Slider
-        value={[Math.min(value, 10_000)]}
+        value={Math.min(value, 10_000)}
         min={100}
         max={10_000}
         step={100}
         disabled={disabled}
-        onValueChange={(vals) => onChange((vals as number[])[0])}
+        onValueChange={(next) => onChange(getSliderNumber(next))}
         aria-label="Интервал обновления (грубая настройка)"
       />
       <div className="flex justify-between text-[10px] text-muted-foreground">
