@@ -60,4 +60,6 @@ export interface BeaconSettings {
   soundVolume: number
   // map
   mapHue: number  // hue-rotate degrees for dark map filter (0–360)
+  // beacon appearance
+  beaconColor: string  // CSS color string, e.g. "#ef4444"
 }

@@ -107,10 +107,33 @@ export function SettingsPanel() {
           <Section title="Отображение">
             <ToggleRow
               label="Показывать маяк"
-              desc="Красная точка на карте"
+              desc="Точка на карте"
               checked={settings.visible}
               onChange={(v) => updateSettings({ visible: v })}
             />
+            <div className="h-px bg-border" />
+            {/* Beacon color picker */}
+            <div className="flex items-center justify-between gap-3">
+              <span>
+                <span className="block text-sm font-medium">Цвет маяка</span>
+                <span className="block text-xs text-muted-foreground">Любой цвет точки</span>
+              </span>
+              <label className="flex cursor-pointer items-center gap-2">
+                <span
+                  className="size-6 rounded-full border-2 border-border shadow-inner"
+                  style={{ background: settings.beaconColor }}
+                  aria-hidden
+                />
+                <input
+                  type="color"
+                  value={settings.beaconColor}
+                  onChange={(e) => updateSettings({ beaconColor: e.target.value })}
+                  className="sr-only"
+                  aria-label="Цвет маяка"
+                />
+                <span className="text-xs text-muted-foreground">{settings.beaconColor}</span>
+              </label>
+            </div>
             <div className="h-px bg-border" />
             <ToggleRow
               label="Тёмная тема"

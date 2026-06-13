@@ -247,7 +247,43 @@
   transition: filter 0.4s ease;
 }
 
-/* ===== Smooth entrance animations ===== */
+/* ===== Beacon movement animation ===== */
+@keyframes beacon-move {
+  0%   { transform: translate(-50%, -50%) scale(1); }
+  25%  { transform: translate(-50%, -50%) scale(1.22) translateY(-3px); }
+  60%  { transform: translate(-50%, -50%) scale(0.93); }
+  100% { transform: translate(-50%, -50%) scale(1); }
+}
+.beacon-moving {
+  animation: beacon-move 0.35s var(--ease-glass, cubic-bezier(0.22,1,0.36,1)) both;
+}
+
+/* ===== Beacon toast (movement notification) ===== */
+@keyframes badge-in {
+  0%   { opacity: 0; transform: translateY(-12px) scale(0.85); }
+  60%  { opacity: 1; transform: translateY(2px) scale(1.04); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes badge-out {
+  0%   { opacity: 1; transform: translateY(0) scale(1); }
+  100% { opacity: 0; transform: translateY(-8px) scale(0.9); }
+}
+.beacon-toast-in  { animation: badge-in  0.36s var(--ease-glass, ease) both; }
+.beacon-toast-out { animation: badge-out 0.28s var(--ease-glass, ease) both; }
+
+/* ===== Counter-filter for beacon dot =====
+   The dot sits inside .map-dark-filter which applies invert+hue-rotate.
+   We undo exactly that transform so the dot always shows its real color. */
+.beacon-counter-filter {
+  /* first invert back (1/0.92 ≈ 1.087 ≈ 100% is close enough; double invert is identity),
+     then rotate hue in the opposite direction. */
+  filter: invert(100%) hue-rotate(calc(180deg - var(--map-hue, 40deg)));
+  /* when not inside a map filter, the double invert is transparent — keep it */
+}
+/* Outside map filter (light mode / no filter parent): just be transparent to avoid invert */
+.no-map-filter .beacon-counter-filter {
+  filter: none;
+}
 @keyframes panel-in {
   from {
     opacity: 0;
