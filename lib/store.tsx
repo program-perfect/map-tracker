@@ -69,6 +69,7 @@ const DEFAULT_SETTINGS: BeaconSettings = {
   soundVolume: 0.4,
   mapHue: 40,
   beaconColor: "#ef4444",
+  panelWidth: 340,
 }
 
 const INITIAL_OBJECTS: TrackedObject[] = [

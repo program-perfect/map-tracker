@@ -72,16 +72,25 @@ export function BeaconMarker({
           aria-live="polite"
           role="status"
         >
-          <div
-            className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold text-white shadow-lg"
-            style={{
-              background: "linear-gradient(135deg, #7c3aed, #4f46e5)",
-              boxShadow: "0 0 12px 2px rgba(124,58,237,0.5), 0 2px 8px rgba(0,0,0,0.3)",
-            }}
-          >
-            <TriangleAlert className="size-3.5 shrink-0" aria-hidden />
-            Точка переместилась
-          </div>
+      <div
+        className={cn(
+          "pointer-events-none absolute bottom-full left-1/2 mb-3 -translate-x-1/2 whitespace-nowrap",
+          toastLeaving ? "beacon-toast-out" : "beacon-toast-in",
+        )}
+        aria-live="polite"
+        role="status"
+      >
+        <div
+          className="flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold text-white shadow-xl"
+          style={{
+            background: "linear-gradient(135deg, #7c3aed, #4f46e5)",
+            boxShadow: "0 0 18px 4px rgba(124,58,237,0.55), 0 4px 16px rgba(0,0,0,0.35)",
+          }}
+        >
+          <TriangleAlert className="size-4 shrink-0" aria-hidden />
+          Точка переместилась
+        </div>
+      </div>
         </div>
       )}
 

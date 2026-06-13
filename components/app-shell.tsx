@@ -14,7 +14,8 @@ import { PanelContent } from "@/components/panel-content"
 import { cn } from "@/lib/utils"
 
 export function AppShell() {
-  const { activePanel } = useStore()
+  const { activePanel, settings } = useStore()
+  const panelWidth = settings.panelWidth ?? 340
   const [collapsed, setCollapsed] = useState(false)
 
   return (
@@ -37,11 +38,15 @@ export function AppShell() {
           className={cn(
             "pointer-events-auto h-full shrink-0 overflow-hidden",
             "transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
-            collapsed ? "w-0" : "w-[340px]",
+            collapsed ? "w-0" : `w-[${panelWidth}px]`,
           )}
+          style={collapsed ? {} : { width: panelWidth }}
         >
           {/* inner div keeps fixed width so content never wraps during transition */}
-          <div className="glass-strong h-full w-[340px] overflow-hidden border-y-0 border-l-0 rounded-r-xl animate-fade-in">
+          <div
+            className="glass-strong h-full overflow-hidden border-y-0 border-l-0 rounded-r-xl animate-fade-in"
+            style={{ width: panelWidth }}
+          >
             <PanelContent />
           </div>
         </div>
