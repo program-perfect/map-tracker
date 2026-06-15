@@ -84,10 +84,10 @@ export function AppShell() {
   }
 
   return (
-    <div className="relative h-dvh w-full overflow-hidden bg-card/95 text-foreground lg:bg-card/95">
+    <div className="relative h-dvh w-full overflow-hidden bg-white text-foreground dark:bg-card/95">
       {/* Desktop map sheet: its left edge moves with the panel and clips the map with soft corners. */}
       <div
-        className="absolute bottom-0 right-0 top-0 hidden overflow-hidden rounded-l-[28px] bg-background shadow-[0_24px_80px_-36px_rgb(0_0_0/0.45)] transition-[left,border-radius] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] lg:block"
+        className="absolute bottom-0 right-0 top-0 hidden overflow-hidden rounded-l-[28px] bg-white shadow-[0_24px_80px_-36px_rgb(0_0_0/0.28)] transition-[left,border-radius] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] dark:bg-background dark:shadow-[0_24px_80px_-36px_rgb(0_0_0/0.45)] lg:block"
         style={{ left: mapLeft }}
       >
         <YandexMap />
@@ -116,7 +116,7 @@ export function AppShell() {
         >
           <div
             className={cn(
-              "h-full overflow-hidden rounded-r-[28px] bg-card/95 shadow-[18px_0_60px_-34px_rgb(0_0_0/0.5)] backdrop-blur-2xl",
+              "h-full overflow-hidden rounded-r-[28px] bg-card/95 shadow-[18px_0_60px_-34px_rgb(0_0_0/0.18)] backdrop-blur-2xl dark:shadow-[18px_0_60px_-34px_rgb(0_0_0/0.5)]",
               "transition-[transform,opacity] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
               collapsed ? "-translate-x-4 opacity-0" : "translate-x-0 opacity-100 animate-fade-in",
             )}
@@ -137,7 +137,7 @@ export function AppShell() {
             aria-label={collapsed ? "Развернуть панель" : "Свернуть панель"}
             title={collapsed ? "Развернуть панель" : "Свернуть панель"}
             className={cn(
-              "flex h-14 w-6 items-center justify-center rounded-r-2xl bg-card/95 text-muted-foreground shadow-[10px_0_28px_-18px_rgb(0_0_0/0.55)] backdrop-blur-2xl",
+              "flex h-14 w-6 items-center justify-center rounded-r-2xl bg-card/95 text-muted-foreground shadow-[10px_0_28px_-18px_rgb(0_0_0/0.32)] backdrop-blur-2xl dark:shadow-[10px_0_28px_-18px_rgb(0_0_0/0.55)]",
               "transition-all duration-200 hover:bg-primary/10 hover:text-foreground active:scale-95",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
             )}
