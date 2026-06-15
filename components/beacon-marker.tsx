@@ -55,7 +55,7 @@ export function BeaconMarker({
 
   return (
     <div
-      className="pointer-events-none absolute z-20"
+      className="pointer-events-none absolute z-20 size-7"
       style={
         centered
           ? { left: 0, top: 0, transform: "translate(-50%, -50%)" }
@@ -89,23 +89,31 @@ export function BeaconMarker({
       {settings.pulseEnabled && (
         <span
           key={`ring-outer-${moveKey}`}
-          className="beacon-ring absolute left-1/2 top-1/2 -z-10 size-7 -translate-x-1/2 -translate-y-1/2 rounded-full"
-          style={{ background: color, opacity: 0.35, filter: counterFilter }}
+          className="absolute left-1/2 top-1/2 -z-10 size-7 -translate-x-1/2 -translate-y-1/2"
           aria-hidden
-        />
+        >
+          <span
+            className="beacon-ring block size-full rounded-full"
+            style={{ background: color, opacity: 0.35, filter: counterFilter }}
+          />
+        </span>
       )}
       {settings.pulseEnabled && (
         <span
           key={`ring-inner-${moveKey}`}
-          className="beacon-ring absolute left-1/2 top-1/2 -z-10 size-5 -translate-x-1/2 -translate-y-1/2 rounded-full"
-          style={{
-            background: color,
-            opacity: 0.55,
-            animationDuration: `${Math.max(600, (settings.pulseDurationMs ?? 1800) * 0.6)}ms`,
-            filter: counterFilter,
-          }}
+          className="absolute left-1/2 top-1/2 -z-10 size-5 -translate-x-1/2 -translate-y-1/2"
           aria-hidden
-        />
+        >
+          <span
+            className="beacon-ring block size-full rounded-full"
+            style={{
+              background: color,
+              opacity: 0.55,
+              animationDuration: `${Math.max(600, (settings.pulseDurationMs ?? 1800) * 0.6)}ms`,
+              filter: counterFilter,
+            }}
+          />
+        </span>
       )}
 
       {/* ---- Dot (counter-filtered + bounce on move, float when idle) ---- */}
@@ -115,7 +123,7 @@ export function BeaconMarker({
         onClick={() => setOpen((o) => !o)}
         onMouseEnter={() => setOpen(true)}
         className={cn(
-          "pointer-events-auto relative grid size-5 cursor-pointer place-items-center rounded-full",
+          "pointer-events-auto absolute left-1/2 top-1/2 grid size-5 cursor-pointer place-items-center rounded-full",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beacon",
           moving ? "beacon-moving" : "beacon-float",
         )}
@@ -179,7 +187,7 @@ export function BeaconMarker({
             <Row
               icon={<BatteryMedium className="size-3.5 text-warm" />}
               label="Статус"
-              value={moving ? "В движен��и" : "На месте"}
+              value={moving ? "В движении" : "На месте"}
             />
           </div>
 
