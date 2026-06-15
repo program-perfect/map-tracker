@@ -229,6 +229,29 @@
   transition: filter 0.4s ease;
 }
 
+@keyframes beacon-ring-pulse {
+  0% {
+    opacity: 0.6;
+    transform: scale(0.35);
+  }
+  62% {
+    opacity: 0.18;
+  }
+  100% {
+    opacity: 0;
+    transform: scale(2.8);
+  }
+}
+.beacon-ring {
+  animation-name: beacon-ring-pulse;
+  animation-duration: var(--beacon-pulse-duration, 1800ms);
+  animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  animation-iteration-count: infinite;
+  animation-fill-mode: both;
+  transform-origin: center;
+  will-change: transform, opacity;
+}
+
 @keyframes beacon-move {
   0%   { transform: translate(-50%, -50%) scale(1)    translateY(0px); }
   18%  { transform: translate(-50%, -50%) scale(1.18) translateY(-5px); }
