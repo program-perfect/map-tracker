@@ -1,17 +1,17 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
-import { ChevronLeft, ChevronRight } from "lucide-react"
-import { useStore } from "@/lib/store"
-import { YandexMap } from "@/components/yandex-map"
-import { TopBar } from "@/components/top-bar"
 import { BottomNav } from "@/components/bottom-nav"
 import { DesktopRail } from "@/components/desktop-rail"
-import { MapControls } from "@/components/map-controls"
 import { LayersControl } from "@/components/layers-control"
-import { ScaleBar } from "@/components/scale-bar"
+import { MapControls } from "@/components/map-controls"
 import { PanelContent } from "@/components/panel-content"
+import { ScaleBar } from "@/components/scale-bar"
+import { TopBar } from "@/components/top-bar"
+import { YandexMap } from "@/components/yandex-map"
+import { useStore } from "@/lib/store"
 import { cn } from "@/lib/utils"
+import { ChevronLeft, ChevronRight } from "lucide-react"
+import { useEffect, useRef, useState } from "react"
 
 const MOBILE_NAV_HEIGHT = 84
 const FULLSCREEN_DRAG_THRESHOLD = 34
@@ -84,10 +84,10 @@ export function AppShell() {
   }
 
   return (
-    <div className="relative h-dvh w-full overflow-hidden bg-white text-foreground dark:bg-card/95">
+    <div className="relative h-dvh w-full overflow-hidden bg-card/95 text-foreground dark:bg-card/95">
       {/* Desktop map sheet: its left edge moves with the panel and clips the map with soft corners. */}
       <div
-        className="absolute bottom-0 right-0 top-0 hidden overflow-hidden rounded-l-[28px] bg-white shadow-[0_24px_80px_-36px_rgb(0_0_0/0.28)] transition-[left,border-radius] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] dark:bg-background dark:shadow-[0_24px_80px_-36px_rgb(0_0_0/0.45)] lg:block"
+        className="absolute bottom-0 right-0 top-0 hidden overflow-hidden rounded-l-[28px] bg-card/95 shadow-[0_24px_80px_-36px_rgb(0_0_0/0.28)] transition-[left,border-radius] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] dark:bg-background dark:shadow-[0_24px_80px_-36px_rgb(0_0_0/0.45)] lg:block"
         style={{ left: mapLeft }}
       >
         <YandexMap />

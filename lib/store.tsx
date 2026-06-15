@@ -1,14 +1,15 @@
 "use client"
 
 import {
-  createContext,
-  use,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react"
+  SPB_ROUTE,
+  bearingFromDirection,
+  bearing as calcBearing,
+  distanceMeters,
+  moveByDistance,
+  nearestNode,
+  pickNextNode
+} from "@/lib/geo"
+import { playAlarm } from "@/lib/sound"
 import type {
   BeaconSettings,
   Geofence,
@@ -20,18 +21,17 @@ import type {
   Scenario,
   ScenarioStep,
   ThemeMode,
+  TrackedObject,
 } from "@/lib/types"
 import {
-  SPB_CENTER,
-  SPB_ROUTE,
-  bearingFromDirection,
-  distanceMeters,
-  moveByDistance,
-  nearestNode,
-  pickNextNode,
-  bearing as calcBearing,
-} from "@/lib/geo"
-import { playAlarm } from "@/lib/sound"
+  createContext,
+  use,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react"
 
 const SPB_STREETS = [
   "Невский проспект",
@@ -54,7 +54,7 @@ function uid(): string {
   return Math.random().toString(36).slice(2, 10)
 }
 
-const MIN_INTERVAL_MS = 10_000
+const MIN_INTERVAL_MS = 5_000
 
 const DEFAULT_SETTINGS: BeaconSettings = {
   visible: true,
@@ -69,10 +69,10 @@ const DEFAULT_SETTINGS: BeaconSettings = {
   activeScenarioId: null,
   pulseEnabled: true,
   pulseDurationMs: 1800,
-  pulseScale: 3,
-  soundEnabled: false,
+  pulseScale: 5,
+  soundEnabled: true,
   soundVolume: 0.4,
-  alarmSound: "beep",
+  alarmSound: "default-alarm",
   mapHue: 40,
   beaconColor: "#ef4444",
   panelWidth: 340,
