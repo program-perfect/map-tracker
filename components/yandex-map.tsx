@@ -22,6 +22,9 @@ const YMAPS3_SCRIPT_URL = API_KEY
   ? `https://api-maps.yandex.ru/v3/?apikey=${encodeURIComponent(API_KEY)}&lang=ru_RU`
   : null
 
+const YMAPS3_KEY_HINT =
+  "Проверь ключ в Кабинете разработчика Яндекса: сервис должен быть JavaScript API, а в ограничениях HTTP Referer должен быть добавлен текущий origin."
+
 declare global {
   interface Window {
     ymaps3?: any
@@ -162,9 +165,12 @@ function logYmaps3LoadError(error: unknown, context: Record<string, unknown>) {
     scriptId: YMAPS3_SCRIPT_ID,
     scriptSrc: script?.src ? redactApiKey(script.src) : YMAPS3_SCRIPT_URL ? redactApiKey(YMAPS3_SCRIPT_URL) : null,
     scriptInDom: Boolean(script),
+    scriptLoadFailed: script?.dataset.ymaps3Error ?? null,
     scriptReadyState: script?.dataset.ymaps3Ready ?? null,
     ymaps3Exists: Boolean(window.ymaps3),
     ymaps3ReadyExists: Boolean(window.ymaps3?.ready),
+    expectedRefererOrigin: window.location.origin,
+    keyHint: YMAPS3_KEY_HINT,
     errorDetails: getErrorDetails(error),
   }
 
@@ -197,7 +203,8 @@ function waitForExistingScript(script: HTMLScriptElement) {
     }
     const onError = (event: Event) => {
       cleanup()
-      reject(createYmaps3Error("Yandex Maps v3 script failed to load", event))
+      script.dataset.ymaps3Error = "true"
+      reject(createYmaps3Error(`Yandex Maps v3 script failed to load. ${YMAPS3_KEY_HINT}`, event))
     }
     const cleanup = () => {
       script.removeEventListener("load", onLoad)
@@ -230,11 +237,14 @@ function loadYmaps3(): Promise<any> {
 
   const existingScript = document.getElementById(YMAPS3_SCRIPT_ID) as HTMLScriptElement | null
   if (existingScript) {
-    scriptPromise = waitForExistingScript(existingScript).catch((error: unknown) => {
-      scriptPromise = null
-      throw error
-    })
-    return scriptPromise
+    if (existingScript.dataset.ymaps3Error === "true") existingScript.remove()
+    else {
+      scriptPromise = waitForExistingScript(existingScript).catch((error: unknown) => {
+        scriptPromise = null
+        throw error
+      })
+      return scriptPromise
+    }
   }
 
   scriptPromise = new Promise<any>((resolve, reject) => {
@@ -242,7 +252,6 @@ function loadYmaps3(): Promise<any> {
     script.id = YMAPS3_SCRIPT_ID
     script.src = YMAPS3_SCRIPT_URL
     script.async = true
-    script.crossOrigin = "anonymous"
     script.dataset.ymaps3Ready = "false"
 
     script.onload = () => {
@@ -252,8 +261,9 @@ function loadYmaps3(): Promise<any> {
       })
     }
     script.onerror = (event) => {
+      script.dataset.ymaps3Error = "true"
       scriptPromise = null
-      reject(createYmaps3Error("Yandex Maps v3 script failed to load", event))
+      reject(createYmaps3Error(`Yandex Maps v3 script failed to load. ${YMAPS3_KEY_HINT}`, event))
     }
     document.head.appendChild(script)
   })
@@ -316,7 +326,7 @@ export function YandexMap() {
   const errorHint = useMemo(() => {
     if (!loadError) return null
     if (!API_KEY) return loadError
-    return `${loadError}. Проверь, что ключ именно для JavaScript API Яндекс Карт, активирован и разрешает HTTP Referer: ${origin || "текущий домен"}.`
+    return `${loadError} Текущий HTTP Referer / origin: ${origin || "не определён"}.`
   }, [loadError, origin])
 
   useEffect(() => {
