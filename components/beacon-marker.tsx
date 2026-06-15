@@ -23,10 +23,13 @@ export function BeaconMarker({
   const prevMoving = useRef(false)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Detect each new move event and trigger toast + pulse restart.
+  const alarmActive = settings.visible && settings.soundEnabled && settings.continuousAlarm
+  const pulseActive = settings.pulseEnabled && alarmActive
+  const pulseDuration = Math.max(600, settings.pulseDurationMs ?? 1800)
+
+  // Detect each new move event and trigger toast.
   useEffect(() => {
     if (moving && !prevMoving.current) {
-      setMoveKey((k) => k + 1)
       setToastLeaving(false)
       setShowToast(true)
       if (toastTimer.current) clearTimeout(toastTimer.current)
@@ -38,25 +41,19 @@ export function BeaconMarker({
     prevMoving.current = moving
   }, [moving])
 
-  // Continuous beacon alarm: repeats exactly on the pulse cycle, even when the point is static.
+  // Continuous beacon alarm: repeats exactly on the visible pulse cycle, even when the point is static.
   useEffect(() => {
-    if (!settings.visible || !settings.soundEnabled || !settings.continuousAlarm) return
+    if (!alarmActive) return
 
-    const duration = Math.max(600, settings.pulseDurationMs ?? 1800)
+    setMoveKey((k) => k + 1)
     playAlarm(settings.alarmSound, settings.soundVolume)
     const id = window.setInterval(() => {
+      setMoveKey((k) => k + 1)
       playAlarm(settings.alarmSound, settings.soundVolume)
-    }, duration)
+    }, pulseDuration)
 
     return () => window.clearInterval(id)
-  }, [
-    settings.visible,
-    settings.soundEnabled,
-    settings.continuousAlarm,
-    settings.alarmSound,
-    settings.soundVolume,
-    settings.pulseDurationMs,
-  ])
+  }, [alarmActive, settings.alarmSound, settings.soundVolume, pulseDuration])
 
   useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current) }, [])
 
@@ -72,8 +69,8 @@ export function BeaconMarker({
       className="pointer-events-none absolute z-20 size-7"
       style={
         centered
-          ? { left: 0, top: 0, transform: "translate(-50%, -50%)" }
-          : { left: x, top: y, transform: "translate(-50%, -50%)" }
+          ? { left: 0, top: 0, transform: "translate(-50%, -50%)", ["--beacon-pulse-duration" as string]: `${pulseDuration}ms` }
+          : { left: x, top: y, transform: "translate(-50%, -50%)", ["--beacon-pulse-duration" as string]: `${pulseDuration}ms` }
       }
     >
       {showToast && (
@@ -98,7 +95,7 @@ export function BeaconMarker({
         </div>
       )}
 
-      {settings.pulseEnabled && (
+      {pulseActive && (
         <span
           key={`ring-outer-${moveKey}`}
           className="absolute left-1/2 top-1/2 -z-10 size-7 -translate-x-1/2 -translate-y-1/2"
@@ -110,7 +107,7 @@ export function BeaconMarker({
           />
         </span>
       )}
-      {settings.pulseEnabled && (
+      {pulseActive && (
         <span
           key={`ring-inner-${moveKey}`}
           className="absolute left-1/2 top-1/2 -z-10 size-5 -translate-x-1/2 -translate-y-1/2"
@@ -121,7 +118,7 @@ export function BeaconMarker({
             style={{
               background: color,
               opacity: 0.55,
-              animationDuration: `${Math.max(600, (settings.pulseDurationMs ?? 1800) * 0.6)}ms`,
+              animationDuration: `${Math.max(600, pulseDuration * 0.6)}ms`,
               filter: counterFilter,
             }}
           />
