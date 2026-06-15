@@ -8,6 +8,10 @@ import { cn } from "@/lib/utils"
 import type { LatLng } from "@/lib/types"
 
 const API_KEY = process.env.NEXT_PUBLIC_YANDEX_MAPS_API_KEY
+const YMAPS3_SCRIPT_ID = "yandex-maps-v3-script"
+const YMAPS3_SCRIPT_URL = API_KEY
+  ? `https://api-maps.yandex.ru/v3/?apikey=${API_KEY}&lang=ru_RU`
+  : null
 
 declare global {
   interface Window {
@@ -25,20 +29,94 @@ function fromYMapCoordinates(coordinates: [number, number]): LatLng {
   return [coordinates[1], coordinates[0]]
 }
 
+function createYmaps3Error(message: string, cause?: unknown) {
+  const error = new Error(message) as Error & { cause?: unknown }
+  if (cause !== undefined) error.cause = cause
+  return error
+}
+
+function redactApiKey(url: string) {
+  return url.replace(/([?&]apikey=)[^&]*/i, "$1<redacted>")
+}
+
+function getErrorDetails(error: unknown): Record<string, unknown> {
+  if (error instanceof Error) {
+    const errorWithCause = error as Error & { cause?: unknown }
+    return {
+      type: "Error",
+      name: error.name,
+      message: error.message,
+      stack: error.stack,
+      cause: errorWithCause.cause,
+    }
+  }
+
+  if (error instanceof Event) {
+    const target = error.target
+    const currentTarget = error.currentTarget
+
+    return {
+      type: "Event",
+      eventType: error.type,
+      isTrusted: error.isTrusted,
+      targetTagName: target instanceof HTMLElement ? target.tagName : undefined,
+      targetSrc: target instanceof HTMLScriptElement ? redactApiKey(target.src) : undefined,
+      currentTargetTagName: currentTarget instanceof HTMLElement ? currentTarget.tagName : undefined,
+      currentTargetSrc: currentTarget instanceof HTMLScriptElement ? redactApiKey(currentTarget.src) : undefined,
+    }
+  }
+
+  return {
+    type: typeof error,
+    value: error,
+  }
+}
+
+function logYmaps3LoadError(error: unknown, context: Record<string, unknown>) {
+  if (typeof window === "undefined") return
+
+  const script = document.getElementById(YMAPS3_SCRIPT_ID) as HTMLScriptElement | null
+
+  const diagnostics = {
+    ...context,
+    timestamp: new Date().toISOString(),
+    currentUrl: window.location.href,
+    userAgent: window.navigator.userAgent,
+    apiKeyPresent: Boolean(API_KEY),
+    apiKeyLength: API_KEY?.length ?? 0,
+    scriptId: YMAPS3_SCRIPT_ID,
+    scriptSrc: script?.src ? redactApiKey(script.src) : YMAPS3_SCRIPT_URL ? redactApiKey(YMAPS3_SCRIPT_URL) : null,
+    scriptInDom: Boolean(script),
+    ymaps3Exists: Boolean(window.ymaps3),
+    ymaps3ReadyExists: Boolean(window.ymaps3?.ready),
+    errorDetails: getErrorDetails(error),
+  }
+
+  console.groupCollapsed("[Yandex Maps v3] Failed to load map")
+  console.error("Full error object:", error)
+  console.error("Full diagnostics:", diagnostics)
+  console.groupEnd()
+}
+
 function loadYmaps3(): Promise<any> {
-  if (typeof window === "undefined") return Promise.reject("ssr")
+  if (typeof window === "undefined") {
+    return Promise.reject(createYmaps3Error("Yandex Maps v3 cannot be loaded during SSR"))
+  }
   if (window.ymaps3?.ready) return window.ymaps3.ready.then(() => window.ymaps3)
-  if (!API_KEY) return Promise.reject("no-key")
+  if (!API_KEY || !YMAPS3_SCRIPT_URL) {
+    return Promise.reject(createYmaps3Error("NEXT_PUBLIC_YANDEX_MAPS_API_KEY is not configured"))
+  }
   if (scriptPromise) return scriptPromise
 
   scriptPromise = new Promise<any>((resolve, reject) => {
     const script = document.createElement("script")
-    script.src = `https://api-maps.yandex.ru/v3/?apikey=${API_KEY}&lang=ru_RU`
+    script.id = YMAPS3_SCRIPT_ID
+    script.src = YMAPS3_SCRIPT_URL
     script.async = true
     script.onload = () => {
       if (!window.ymaps3?.ready) {
         scriptPromise = null
-        reject("load-error")
+        reject(createYmaps3Error("Yandex Maps v3 script loaded, but window.ymaps3.ready is missing"))
         return
       }
 
@@ -46,12 +124,12 @@ function loadYmaps3(): Promise<any> {
         .then(() => resolve(window.ymaps3))
         .catch((error: unknown) => {
           scriptPromise = null
-          reject(error)
+          reject(createYmaps3Error("Yandex Maps v3 ready promise rejected", error))
         })
     }
-    script.onerror = () => {
+    script.onerror = (event) => {
       scriptPromise = null
-      reject("load-error")
+      reject(createYmaps3Error("Yandex Maps v3 script failed to load", event))
     }
     document.head.appendChild(script)
   })
@@ -94,7 +172,14 @@ export function YandexMap() {
   const [status, setStatus] = useState<Status>(API_KEY ? "loading" : "error")
 
   useEffect(() => {
-    if (!API_KEY) return
+    if (!API_KEY) {
+      logYmaps3LoadError(
+        createYmaps3Error("NEXT_PUBLIC_YANDEX_MAPS_API_KEY is not configured"),
+        { stage: "configuration" },
+      )
+      return
+    }
+
     let cancelled = false
 
     loadYmaps3()
@@ -160,7 +245,8 @@ export function YandexMap() {
 
         if (!cancelled) setStatus("ready")
       })
-      .catch(() => {
+      .catch((error: unknown) => {
+        logYmaps3LoadError(error, { stage: "initial-load" })
         if (!cancelled) setStatus("error")
       })
 
