@@ -28,7 +28,7 @@ export function AppShell() {
   }, [collapsed, panelWidth])
 
   return (
-    <div className="relative h-dvh w-full overflow-hidden bg-background text-foreground">
+    <div className="relative h-dvh w-full overflow-hidden bg-card/95 text-foreground lg:bg-card/95">
       {/* Desktop map sheet: its left edge moves with the panel and clips the map with soft corners. */}
       <div
         className="absolute bottom-0 right-0 top-0 hidden overflow-hidden rounded-l-[28px] bg-background shadow-[0_24px_80px_-36px_rgb(0_0_0/0.45)] transition-[left,border-radius] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] lg:block"
@@ -38,7 +38,7 @@ export function AppShell() {
       </div>
 
       {/* Mobile keeps the map full-bleed. */}
-      <div className="absolute inset-0 lg:hidden">
+      <div className="absolute inset-0 bg-background lg:hidden">
         <YandexMap />
       </div>
 
