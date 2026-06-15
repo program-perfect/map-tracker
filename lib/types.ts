@@ -10,6 +10,16 @@ export type Direction = "N" | "NE" | "E" | "SE" | "S" | "SW" | "W" | "NW"
 
 export type PanelId = "map" | "objects" | "history" | "geofences" | "settings"
 
+export type AlarmSoundId =
+  | "beep"
+  | "double-beep"
+  | "scanner"
+  | "siren"
+  | "urgent"
+  | "evacuation"
+  | "radar"
+  | "warning"
+
 export interface HistoryEntry {
   id: string
   at: number
@@ -69,7 +79,7 @@ export interface BeaconSettings {
   visible: boolean
   // movement
   autoMove: boolean
-  intervalMs: number // how often it moves (ms) — high-precision, 100–60000
+  intervalMs: number // how often it moves (ms)
   stepMeters: number // distance per move
   direction: Direction
   followRoute: boolean
@@ -85,6 +95,7 @@ export interface BeaconSettings {
   // sound
   soundEnabled: boolean
   soundVolume: number
+  alarmSound: AlarmSoundId
   // map
   mapHue: number  // hue-rotate degrees for dark map filter (0–360)
   // beacon appearance
