@@ -11,26 +11,51 @@ const API_KEY = process.env.NEXT_PUBLIC_YANDEX_MAPS_API_KEY
 
 declare global {
   interface Window {
-    ymaps?: any
+    ymaps3?: any
   }
 }
 
-let scriptPromise: Promise<void> | null = null
+let scriptPromise: Promise<any> | null = null
 
-function loadYmaps21(): Promise<void> {
+function toYMapCoordinates(position: LatLng): [number, number] {
+  return [position[1], position[0]]
+}
+
+function fromYMapCoordinates(coordinates: [number, number]): LatLng {
+  return [coordinates[1], coordinates[0]]
+}
+
+function loadYmaps3(): Promise<any> {
   if (typeof window === "undefined") return Promise.reject("ssr")
-  if (window.ymaps?.ready) return new Promise<void>((res) => window.ymaps.ready(res))
+  if (window.ymaps3?.ready) return window.ymaps3.ready.then(() => window.ymaps3)
   if (!API_KEY) return Promise.reject("no-key")
   if (scriptPromise) return scriptPromise
 
-  scriptPromise = new Promise<void>((resolve, reject) => {
+  scriptPromise = new Promise<any>((resolve, reject) => {
     const script = document.createElement("script")
-    script.src = `https://api-maps.yandex.ru/2.1/?apikey=${API_KEY}&lang=ru_RU`
+    script.src = `https://api-maps.yandex.ru/v3/?apikey=${API_KEY}&lang=ru_RU`
     script.async = true
-    script.onload = () => window.ymaps.ready(resolve)
-    script.onerror = () => { scriptPromise = null; reject("load-error") }
+    script.onload = () => {
+      if (!window.ymaps3?.ready) {
+        scriptPromise = null
+        reject("load-error")
+        return
+      }
+
+      window.ymaps3.ready
+        .then(() => resolve(window.ymaps3))
+        .catch((error: unknown) => {
+          scriptPromise = null
+          reject(error)
+        })
+    }
+    script.onerror = () => {
+      scriptPromise = null
+      reject("load-error")
+    }
     document.head.appendChild(script)
   })
+
   return scriptPromise
 }
 
@@ -41,8 +66,6 @@ export function YandexMap() {
     layers,
     zoom,
     setZoom,
-    rotationMode,
-    heading,
     position,
     settings,
     centerRequest,
@@ -50,16 +73,17 @@ export function YandexMap() {
     theme,
   } = useStore()
 
-  const containerRef  = useRef<HTMLDivElement>(null)
-  const wrapperRef    = useRef<HTMLDivElement>(null)
-  const mapRef        = useRef<any>(null)
-  const placemarkRef  = useRef<any>(null)
-  const trafficRef    = useRef<any>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const mapRef = useRef<any>(null)
+  const markerRef = useRef<any>(null)
+  const schemeLayerRef = useRef<any>(null)
+  const featuresLayerRef = useRef<any>(null)
+  const listenerRef = useRef<any>(null)
 
-  // DOM node that Yandex renders the custom placemark into, so we can portal BeaconMarker there
+  // DOM node that Yandex renders the custom marker into, so we can portal BeaconMarker there.
   const [markerHost, setMarkerHost] = useState<HTMLElement | null>(null)
 
-  // Stable refs so event handlers never capture stale values
+  // Stable refs so API event handlers never capture stale React values.
   const placeBeaconRef = useRef(placeBeacon)
   placeBeaconRef.current = placeBeacon
   const setZoomRef = useRef(setZoom)
@@ -68,82 +92,88 @@ export function YandexMap() {
   zoomRef.current = zoom
 
   const [status, setStatus] = useState<Status>(API_KEY ? "loading" : "error")
+
   useEffect(() => {
     if (!API_KEY) return
     let cancelled = false
 
-    loadYmaps21()
-      .then(() => {
+    loadYmaps3()
+      .then((ymaps3) => {
         if (cancelled || !containerRef.current || mapRef.current) return
-        const ymaps = window.ymaps
 
-        const map = new ymaps.Map(
-          containerRef.current,
-          { center: [position[0], position[1]], zoom, controls: [] },
-          { suppressMapOpenBlock: true, copyrightUseMapMargin: false },
-        )
+        const {
+          YMap,
+          YMapDefaultSchemeLayer,
+          YMapDefaultFeaturesLayer,
+          YMapMarker,
+          YMapListener,
+        } = ymaps3
+
+        const map = new YMap(containerRef.current, {
+          location: {
+            center: toYMapCoordinates(position),
+            zoom,
+          },
+          behaviors: ["drag", "scrollZoom", "dblClick", "pinchZoom"],
+          mode: "vector",
+        })
         mapRef.current = map
 
-        // Disable Yandex promo balloon
-        try { map.copyrights.togglePromo(false) } catch {}
+        const schemeLayer = new YMapDefaultSchemeLayer({})
+        schemeLayerRef.current = schemeLayer
+        map.addChild(schemeLayer)
 
-        // Sync zoom from user interaction
-        map.events.add("boundschange", () => {
-          if (cancelled) return
-          const z = Math.round(map.getZoom())
-          if (z !== zoomRef.current) setZoomRef.current(z)
-        })
+        const featuresLayer = new YMapDefaultFeaturesLayer({})
+        featuresLayerRef.current = featuresLayer
+        map.addChild(featuresLayer)
 
-        // Click on map → place beacon at that coordinate
-        map.events.add("click", (e: any) => {
-          if (cancelled) return
-          const coords: [number, number] = e.get("coords")
-          placeBeaconRef.current([coords[0], coords[1]])
-        })
+        const markerHostElement = document.createElement("div")
+        markerHostElement.style.cssText = "position:relative;width:0;height:0;overflow:visible;"
+        setMarkerHost(markerHostElement)
 
-        // Custom HTML placemark — Yandex handles all geo→pixel projection internally.
-        // We create a host <div>, portal our React BeaconMarker into it, and pass
-        // it to ymaps as an HTML layout so it always sits exactly on the coordinate.
-        const host = document.createElement("div")
-        host.style.cssText = "position:relative;width:0;height:0;overflow:visible;"
-
-        const Layout = ymaps.templateLayoutFactory.createClass(
-          '<div id="beacon-layout-host" style="position:relative;width:0;height:0;overflow:visible;"></div>',
-          {
-            build() {
-              Layout.superclass.build.call(this)
-              const el = this.getParentElement().querySelector("#beacon-layout-host")
-              if (el && !cancelled) setMarkerHost(el as HTMLElement)
-            },
-            clear() {
-              setMarkerHost(null)
-              Layout.superclass.clear.call(this)
-            },
-          },
+        const marker = new YMapMarker(
+          { coordinates: toYMapCoordinates(position) },
+          markerHostElement,
         )
+        markerRef.current = marker
+        map.addChild(marker)
 
-        const placemark = new ymaps.Placemark(
-          [position[0], position[1]],
-          {},
-          {
-            iconLayout: Layout,
-            iconShape: { type: "Circle", coordinates: [0, 0], radius: 14 },
+        const listener = new YMapListener({
+          layer: "any",
+          onClick: (_object: unknown, event: { coordinates?: [number, number] }) => {
+            if (cancelled || !event.coordinates) return
+            placeBeaconRef.current(fromYMapCoordinates(event.coordinates))
           },
-        )
-        placemarkRef.current = placemark
-        map.geoObjects.add(placemark)
+          onUpdate: (event: { location?: { zoom?: number } }) => {
+            if (cancelled) return
+            const nextZoom = event.location?.zoom
+            if (typeof nextZoom !== "number") return
+
+            const roundedZoom = Math.round(nextZoom)
+            if (roundedZoom !== zoomRef.current) {
+              setZoomRef.current(roundedZoom)
+            }
+          },
+        })
+        listenerRef.current = listener
+        map.addChild(listener)
 
         if (!cancelled) setStatus("ready")
       })
-      .catch(() => { if (!cancelled) setStatus("error") })
+      .catch(() => {
+        if (!cancelled) setStatus("error")
+      })
 
     return () => {
       cancelled = true
+      setMarkerHost(null)
       if (mapRef.current) {
         try { mapRef.current.destroy() } catch {}
         mapRef.current = null
-        placemarkRef.current = null
-        trafficRef.current = null
+        markerRef.current = null
+        schemeLayerRef.current = null
+        featuresLayerRef.current = null
+        listenerRef.current = null
         scriptPromise = null
       }
     }
@@ -151,32 +181,17 @@ export function YandexMap() {
   }, [])
 
   // ── Traffic layer ──────────────────────────────────────────────────────────
+  // Yandex Maps API v3 does not use the old ymaps.control.TrafficControl from 2.1.
+  // Keep the layer flag wired as a no-op instead of crashing the map while the rest
+  // of the app is migrated to the v3 entity/layer model.
   useEffect(() => {
-    const map = mapRef.current
-    const ymaps = window.ymaps
-    if (!map || !ymaps || status !== "ready") return
-
-    if (layers.traffic) {
-      if (!trafficRef.current) {
-        trafficRef.current = new ymaps.control.TrafficControl({ shown: true })
-        map.controls.add(trafficRef.current)
-        trafficRef.current.showTraffic()
-      }
-    } else {
-      if (trafficRef.current) {
-        try {
-          trafficRef.current.hideTraffic()
-          map.controls.remove(trafficRef.current)
-        } catch {}
-        trafficRef.current = null
-      }
-    }
+    if (status !== "ready") return
   }, [layers.traffic, status])
 
-  // ── Labels layer — hide/show map text via injected style ──────────────────
-  // Yandex Maps 2.1 renders labels as a separate tile layer in its own pane.
-  // We use version-agnostic attribute selectors so the rule survives SDK
-  // patch updates that change the minor version in class names.
+  // ── Labels layer fallback ──────────────────────────────────────────────────
+  // In API 2.1 labels were separate DOM panes, so CSS selectors could hide them.
+  // API v3 renders the scheme as vector/canvas layers, so this CSS is only a safe
+  // fallback for auxiliary DOM labels and will not mutate the map instance.
   useEffect(() => {
     const id = "ymaps-labels-override"
     let el = document.getElementById(id) as HTMLStyleElement | null
@@ -188,7 +203,6 @@ export function YandexMap() {
         document.head.appendChild(el)
       }
       el.textContent = `
-        /* Version-agnostic: target any Yandex pane that carries place labels */
         [class*="ymaps"][class*="places-pane"],
         [class*="ymaps"][class*="places-pane"] *,
         [class*="ymaps"][class*="labels"],
@@ -200,35 +214,77 @@ export function YandexMap() {
     } else {
       el?.remove()
     }
+
     return () => {
-      if (layers.labels) document.getElementById("ymaps-labels-override")?.remove()
+      if (layers.labels) document.getElementById(id)?.remove()
     }
   }, [layers.labels])
+
+  // ── Zoom sync from controls ────────────────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current
-    if (!map) return
-    if (Math.round(map.getZoom()) !== zoom) map.setZoom(zoom, { duration: 200 })
-  }, [zoom])
+    if (!map || status !== "ready") return
+
+    try {
+      map.update({
+        location: {
+          center: toYMapCoordinates(position),
+          zoom,
+          duration: 200,
+        },
+      })
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zoom, status])
 
   // ── Center request ─────────────────────────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current
-    if (!map || !centerRequest) return
-    map.setCenter([centerRequest.position[0], centerRequest.position[1]], zoom, { duration: 400 })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [centerRequest])
+    if (!map || !centerRequest || status !== "ready") return
 
-  // ── Sync placemark coordinate when position changes ────────────────────────
+    try {
+      map.update({
+        location: {
+          center: toYMapCoordinates(centerRequest.position),
+          zoom,
+          duration: 400,
+        },
+      })
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [centerRequest, status])
+
+  // ── Sync marker coordinate when position changes ───────────────────────────
   useEffect(() => {
-    if (placemarkRef.current) {
-      try { placemarkRef.current.geometry.setCoordinates([position[0], position[1]]) } catch {}
+    const marker = markerRef.current
+    if (!marker || status !== "ready") return
+
+    try {
+      marker.update({ coordinates: toYMapCoordinates(position) })
+    } catch {}
+  }, [position, status])
+
+  // ── Let the v3 renderer recalculate after fullscreen/layout changes ────────
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || status !== "ready") return
+
+    const resize = () => {
+      try { map.resize?.() } catch {}
     }
-  }, [position])
+
+    window.addEventListener("resize", resize)
+    document.addEventListener("fullscreenchange", resize)
+
+    return () => {
+      window.removeEventListener("resize", resize)
+      document.removeEventListener("fullscreenchange", resize)
+    }
+  }, [status])
 
   // ── Render ─────────────────────────────────────────────────────────────────
-  // The outer wrapper overflows by CROP_PX on all sides so the Yandex logo
-  // strip at the bottom AND the injected traffic/branding buttons are clipped.
   const CROP = 52
+
   return (
     <div
       className="absolute inset-0 overflow-hidden"
@@ -236,7 +292,6 @@ export function YandexMap() {
     >
       {/* negative margin exposes extra map area that gets clipped by overflow:hidden above */}
       <div
-        ref={wrapperRef}
         className="absolute"
         style={{ inset: `-${CROP}px` }}
       >
@@ -244,8 +299,8 @@ export function YandexMap() {
           ref={containerRef}
           className={cn(
             "absolute inset-0",
-            // CSS dark theme: invert(90%) hue-rotate(180deg) turns the light
-            // Yandex tiles into a dark map without any filter on our UI layer.
+            // Keep the existing app-level dark-map visual treatment and the
+            // BeaconMarker counter-filter behavior unchanged after the v3 switch.
             theme === "dark" && status === "ready" && "map-dark-filter",
           )}
           aria-label="Карта Санкт-Петербурга"
@@ -266,12 +321,12 @@ export function YandexMap() {
       {status === "error" && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-muted/80 text-sm text-muted-foreground">
           <span>Карта недоступна</span>
-          <span className="text-xs opacity-70">Проверьте API-ключ Яндекс Карт</span>
+          <span className="text-xs opacity-70">Проверьте API-ключ Яндекс Карт v3</span>
         </div>
       )}
 
-      {/* Beacon marker — portalled into Yandex's own placemark DOM node so
-          the library handles geo→pixel positioning with no manual math */}
+      {/* Beacon marker — portalled into Yandex's own v3 marker DOM node so
+          the library handles geo→pixel positioning with no manual math. */}
       {markerHost && settings.visible && status === "ready" &&
         createPortal(<BeaconMarker centered />, markerHost)}
     </div>
