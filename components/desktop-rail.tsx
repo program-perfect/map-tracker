@@ -9,7 +9,7 @@ export function DesktopRail() {
   const { activePanel, setActivePanel } = useStore()
 
   return (
-    <div className="glass-strong flex h-full flex-col items-center gap-1 border-y-0 border-l-0 border-r border-border/60 px-1.5 py-3">
+    <div className="flex h-full flex-col items-center gap-1 bg-card/95 px-1.5 py-3 shadow-[18px_0_60px_-42px_rgb(0_0_0/0.55)] backdrop-blur-2xl">
       <span
         className="mb-2 grid size-10 place-items-center rounded-lg"
         style={{ background: "var(--grad-primary)", boxShadow: "var(--glow-primary)" }}
