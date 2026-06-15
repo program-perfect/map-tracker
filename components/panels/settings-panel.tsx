@@ -73,20 +73,7 @@ function IntervalRow({ value, onChange, disabled }: { value: number; onChange: (
       <div className="flex items-center justify-between gap-2 text-sm">
         <span className="font-medium">Интервал позиций</span>
         <div className="flex items-center gap-1">
-          <input
-            type="number"
-            min={10}
-            max={3600}
-            step={1}
-            value={Math.round(value / 1000)}
-            disabled={disabled}
-            onChange={(e) => {
-              const v = Number(e.target.value)
-              if (!Number.isNaN(v) && v >= 10 && v <= 3600) onChange(v * 1000)
-            }}
-            className="h-7 w-20 rounded-md bg-background px-2 text-right font-mono text-xs tabular-nums focus:outline-none focus:ring-1 focus:ring-ring"
-            aria-label="Интервал позиций в секундах"
-          />
+          <input type="number" min={10} max={3600} step={1} value={Math.round(value / 1000)} disabled={disabled} onChange={(e) => { const v = Number(e.target.value); if (!Number.isNaN(v) && v >= 10 && v <= 3600) onChange(v * 1000) }} className="h-7 w-20 rounded-md bg-background px-2 text-right font-mono text-xs tabular-nums focus:outline-none focus:ring-1 focus:ring-ring" aria-label="Интервал позиций в секундах" />
           <span className="text-xs text-muted-foreground">с</span>
         </div>
       </div>
@@ -121,10 +108,7 @@ export function SettingsPanel() {
             <ToggleRow label="Показывать маяк" desc="Точка на карте" checked={settings.visible} onChange={(v) => updateSettings({ visible: v })} />
             <Divider />
             <div className="flex items-center justify-between gap-4 py-0.5">
-              <span>
-                <span className="block text-sm font-medium leading-snug">Цвет маяка</span>
-                <span className="block text-xs leading-snug text-muted-foreground">Нажмите на круг, чтобы выбрать цвет</span>
-              </span>
+              <span><span className="block text-sm font-medium leading-snug">Цвет маяка</span><span className="block text-xs leading-snug text-muted-foreground">Нажмите на круг, чтобы выбрать цвет</span></span>
               <label className="flex cursor-pointer items-center gap-2.5">
                 <span className="size-7 rounded-full border-2 border-border shadow-inner transition-transform hover:scale-110" style={{ background: settings.beaconColor }} aria-hidden />
                 <input type="color" value={settings.beaconColor} onChange={(e) => updateSettings({ beaconColor: e.target.value })} className="sr-only" aria-label="Цвет маяка" />
@@ -149,13 +133,7 @@ export function SettingsPanel() {
             <IntervalRow value={settings.intervalMs} onChange={(v) => updateSettings({ intervalMs: v })} disabled={!settings.autoMove || settings.scenarioEnabled} />
             <Divider />
             <ToggleRow label="Двигаться по улицам" desc="Перемещение по узлам дорожного графа" checked={settings.followRoute} onChange={(v) => updateSettings({ followRoute: v })} />
-            <div className="space-y-2">
-              <span className="text-sm font-medium">Направление</span>
-              <Select value={settings.direction} onValueChange={(v) => updateSettings({ direction: v as Direction })} disabled={settings.followRoute}>
-                <SelectTrigger className="w-full" aria-label="Направление движения"><SelectValue /></SelectTrigger>
-                <SelectContent>{DIRECTIONS.map((d) => <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
+            <div className="space-y-2"><span className="text-sm font-medium">Направление</span><Select value={settings.direction} onValueChange={(v) => updateSettings({ direction: v as Direction })} disabled={settings.followRoute}><SelectTrigger className="w-full" aria-label="Направление движения"><SelectValue /></SelectTrigger><SelectContent>{DIRECTIONS.map((d) => <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>)}</SelectContent></Select></div>
             <SliderRow label="Шаг перемещения" value={settings.stepMeters} display={`${settings.stepMeters} м`} min={10} max={300} step={10} disabled={settings.followRoute} onChange={(v) => updateSettings({ stepMeters: v })} />
           </Section>
 
@@ -166,10 +144,7 @@ export function SettingsPanel() {
 
           <Section title="Расписание">
             <ToggleRow label="Перемещение по времени" desc="Двигаться в заданный момент" checked={settings.scheduledMove} onChange={(v) => updateSettings({ scheduledMove: v })} />
-            <div className={settings.scheduledMove ? "space-y-2" : "space-y-2 opacity-40 pointer-events-none"}>
-              <span className="text-sm font-medium">Время</span>
-              <Input type="time" value={settings.scheduleAt} disabled={!settings.scheduledMove} onChange={(e) => updateSettings({ scheduleAt: e.target.value })} className="w-full" aria-label="Время перемещения" />
-            </div>
+            <div className={settings.scheduledMove ? "space-y-2" : "space-y-2 opacity-40 pointer-events-none"}><span className="text-sm font-medium">Время</span><Input type="time" value={settings.scheduleAt} disabled={!settings.scheduledMove} onChange={(e) => updateSettings({ scheduleAt: e.target.value })} className="w-full" aria-label="Время перемещения" /></div>
           </Section>
 
           <Section title="Пульсация">
@@ -180,33 +155,18 @@ export function SettingsPanel() {
           </Section>
 
           <Section title="Звук">
-            <ToggleRow
-              label="Звуковой сигнал"
-              desc="Сигнал при каждом перемещении и тревоге геозоны"
-              checked={settings.soundEnabled}
-              onChange={(v) => {
-                updateSettings({ soundEnabled: v })
-                if (v) playAlarm(settings.alarmSound, settings.soundVolume)
-              }}
-            />
+            <ToggleRow label="Звуковой сигнал" desc="Основной звук маяка и тревог" checked={settings.soundEnabled} onChange={(v) => { updateSettings({ soundEnabled: v }); if (v) playAlarm(settings.alarmSound, settings.soundVolume) }} />
+            <Divider />
+            <ToggleRow label="Постоянная сигнализация" desc="Повторять сигнал в ритм пульсации, даже если точка стоит" checked={settings.continuousAlarm} onChange={(v) => updateSettings({ continuousAlarm: v })} />
             <Divider />
             <div className={settings.soundEnabled ? "space-y-2" : "space-y-2 opacity-40 pointer-events-none"}>
               <span className="text-sm font-medium">Тип сигнала</span>
-              <Select value={settings.alarmSound} onValueChange={(v) => updateSettings({ alarmSound: v as AlarmSoundId })} disabled={!settings.soundEnabled}>
-                <SelectTrigger className="w-full" aria-label="Тип тревожного сигнала"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {ALARM_SOUND_OPTIONS.map((sound) => (
-                    <SelectItem key={sound.id} value={sound.id}>{sound.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Select value={settings.alarmSound} onValueChange={(v) => updateSettings({ alarmSound: v as AlarmSoundId })} disabled={!settings.soundEnabled}><SelectTrigger className="w-full" aria-label="Тип тревожного сигнала"><SelectValue /></SelectTrigger><SelectContent>{ALARM_SOUND_OPTIONS.map((sound) => <SelectItem key={sound.id} value={sound.id}>{sound.label}</SelectItem>)}</SelectContent></Select>
               <p className="text-xs text-muted-foreground">{ALARM_SOUND_OPTIONS.find((sound) => sound.id === settings.alarmSound)?.description}</p>
             </div>
             <Divider />
             <SliderRow label="Громкость" value={Math.round(settings.soundVolume * 100)} display={`${Math.round(settings.soundVolume * 100)}%`} min={0} max={100} step={5} disabled={!settings.soundEnabled} onChange={(v) => updateSettings({ soundVolume: v / 100 })} />
-            <button type="button" disabled={!settings.soundEnabled} onClick={() => playAlarm(settings.alarmSound, settings.soundVolume)} className="w-full rounded-lg px-4 py-3 text-sm font-medium transition-colors hover:bg-accent disabled:opacity-40">
-              Проверить сигнал
-            </button>
+            <button type="button" disabled={!settings.soundEnabled} onClick={() => playAlarm(settings.alarmSound, settings.soundVolume)} className="w-full rounded-lg px-4 py-3 text-sm font-medium transition-colors hover:bg-accent disabled:opacity-40">Проверить сигнал</button>
           </Section>
         </div>
       </ScrollArea>
