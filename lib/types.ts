@@ -96,6 +96,7 @@ export interface BeaconSettings {
   soundEnabled: boolean
   soundVolume: number
   alarmSound: AlarmSoundId
+  continuousAlarm: boolean
   // map
   mapHue: number  // hue-rotate degrees for dark map filter (0–360)
   // beacon appearance
