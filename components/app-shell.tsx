@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { ChevronLeft, ChevronRight } from "lucide-react"
 import { useStore } from "@/lib/store"
 import { YandexMap } from "@/components/yandex-map"
@@ -16,12 +16,29 @@ import { cn } from "@/lib/utils"
 export function AppShell() {
   const { activePanel, settings } = useStore()
   const panelWidth = settings.panelWidth ?? 340
+  const railWidth = 68
   const [collapsed, setCollapsed] = useState(false)
+  const mapLeft = collapsed ? railWidth : railWidth + panelWidth
+
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      window.dispatchEvent(new Event("resize"))
+    }, 330)
+    return () => window.clearTimeout(id)
+  }, [collapsed, panelWidth])
 
   return (
     <div className="relative h-dvh w-full overflow-hidden bg-background text-foreground">
-      {/* Map base layer */}
-      <div className="absolute inset-0">
+      {/* Desktop map sheet: its left edge moves with the panel and clips the map with soft corners. */}
+      <div
+        className="absolute bottom-0 right-0 top-0 hidden overflow-hidden rounded-l-[28px] bg-background shadow-[0_24px_80px_-36px_rgb(0_0_0/0.45)] transition-[left,border-radius] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] lg:block"
+        style={{ left: mapLeft }}
+      >
+        <YandexMap />
+      </div>
+
+      {/* Mobile keeps the map full-bleed. */}
+      <div className="absolute inset-0 lg:hidden">
         <YandexMap />
       </div>
 
@@ -29,50 +46,51 @@ export function AppShell() {
       <div className="pointer-events-none absolute inset-0 hidden lg:flex lg:flex-row">
 
         {/* left rail — always visible */}
-        <div className="pointer-events-auto h-full shrink-0">
+        <div className="pointer-events-auto h-full shrink-0" style={{ width: railWidth }}>
           <DesktopRail />
         </div>
 
         {/* collapsible content panel — animates width 340px ↔ 0 */}
         <div
           className={cn(
-            "pointer-events-auto h-full shrink-0 overflow-hidden",
+            "pointer-events-auto h-full shrink-0 overflow-visible",
             "transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
-            collapsed ? "w-0" : `w-[${panelWidth}px]`,
           )}
-          style={collapsed ? {} : { width: panelWidth }}
+          style={{ width: collapsed ? 0 : panelWidth }}
         >
-          {/* inner div keeps fixed width so content never wraps during transition */}
           <div
-            className="glass-strong h-full overflow-hidden border-y-0 border-l-0 rounded-r-xl animate-fade-in"
+            className={cn(
+              "h-full overflow-hidden rounded-r-[28px] bg-card/95 shadow-[18px_0_60px_-34px_rgb(0_0_0/0.5)] backdrop-blur-2xl",
+              "transition-[transform,opacity] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
+              collapsed ? "-translate-x-4 opacity-0" : "translate-x-0 opacity-100 animate-fade-in",
+            )}
             style={{ width: panelWidth }}
           >
             <PanelContent />
           </div>
         </div>
 
-        {/* toggle tab — rounded on right side only, "curving into" the panel */}
-        <div className="pointer-events-auto self-center">
+        {/* toggle tab — sits inside the map edge so the panel can return */}
+        <div
+          className="pointer-events-auto absolute top-1/2 z-20 -translate-y-1/2 transition-[left] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
+          style={{ left: mapLeft - 1 }}
+        >
           <button
             type="button"
             onClick={() => setCollapsed((v) => !v)}
             aria-label={collapsed ? "Развернуть панель" : "Свернуть панель"}
             title={collapsed ? "Развернуть панель" : "Свернуть панель"}
             className={cn(
-              "glass pointer-events-auto flex h-14 w-5 items-center justify-center",
-              "rounded-r-xl border-l-0",
-              "transition-all duration-200 hover:bg-primary/10 active:scale-95",
+              "flex h-14 w-6 items-center justify-center rounded-r-2xl bg-card/95 text-muted-foreground shadow-[10px_0_28px_-18px_rgb(0_0_0/0.55)] backdrop-blur-2xl",
+              "transition-all duration-200 hover:bg-primary/10 hover:text-foreground active:scale-95",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
             )}
           >
             {collapsed
-              ? <ChevronRight className="size-3 text-muted-foreground" />
-              : <ChevronLeft className="size-3 text-muted-foreground" />}
+              ? <ChevronRight className="size-3" />
+              : <ChevronLeft className="size-3" />}
           </button>
         </div>
-
-        {/* spacer so map is interactive to the right */}
-        <div className="flex-1" />
 
         {/* top-right overlay: top bar + layers */}
         <div className="pointer-events-none absolute right-4 top-4 flex flex-col items-end gap-3">
@@ -119,8 +137,8 @@ export function AppShell() {
 
         {/* bottom sheet panel */}
         {activePanel !== "map" ? (
-          <div className="glass-strong pointer-events-auto absolute inset-x-0 bottom-[84px] mx-2 max-h-[55dvh] animate-sheet-up overflow-hidden rounded-xl">
-            <div className="mx-auto mt-2.5 h-1 w-10 rounded-full bg-border/60" />
+          <div className="pointer-events-auto absolute inset-x-0 bottom-[84px] mx-2 max-h-[55dvh] animate-sheet-up overflow-hidden rounded-xl bg-card/95 shadow-xl backdrop-blur-2xl">
+            <div className="mx-auto mt-2.5 h-1 w-10 rounded-full bg-primary/35" />
             <div className="h-[52dvh]">
               <PanelContent />
             </div>
@@ -142,7 +160,7 @@ function MobileMapStrip() {
   const { settings, speedKmh, street, moving, moveOnce } = useStore()
   if (!settings.visible) return null
   return (
-    <div className="glass pointer-events-auto absolute inset-x-0 bottom-[84px] mx-2 flex animate-sheet-up items-center gap-3 rounded-xl px-3 py-2.5">
+    <div className="pointer-events-auto absolute inset-x-0 bottom-[84px] mx-2 flex animate-sheet-up items-center gap-3 rounded-xl bg-card/95 px-3 py-2.5 shadow-lg backdrop-blur-2xl">
       <span
         className="grid size-9 shrink-0 place-items-center rounded-lg"
         style={{ background: "var(--grad-primary)", boxShadow: "var(--glow-beacon)" }}
