@@ -22,10 +22,9 @@ export function BeaconMarker({
   const prevMoving = useRef(false)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Detect each new move event and trigger toast + bounce animation
+  // Detect each new move event and trigger toast + pulse restart.
   useEffect(() => {
     if (moving && !prevMoving.current) {
-      // new move started
       setMoveKey((k) => k + 1)
       setToastLeaving(false)
       setShowToast(true)
@@ -116,16 +115,16 @@ export function BeaconMarker({
         </span>
       )}
 
-      {/* ---- Dot (counter-filtered + bounce on move, float when idle) ---- */}
+      {/* ---- Dot (counter-filtered and centered on the exact same anchor as the pulse rings) ---- */}
       <button
         key={moveKey}
         type="button"
         onClick={() => setOpen((o) => !o)}
         onMouseEnter={() => setOpen(true)}
         className={cn(
-          "pointer-events-auto absolute left-1/2 top-1/2 grid size-5 cursor-pointer place-items-center rounded-full",
+          "pointer-events-auto absolute left-1/2 top-1/2 grid size-5 -translate-x-1/2 -translate-y-1/2 cursor-pointer place-items-center rounded-full",
+          "transition-transform hover:scale-105 active:scale-95",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-beacon",
-          moving ? "beacon-moving" : "beacon-float",
         )}
         style={{
           background: `radial-gradient(circle at 35% 30%, color-mix(in srgb, ${color} 60%, white), ${color} 60%, color-mix(in srgb, ${color} 80%, black))`,
