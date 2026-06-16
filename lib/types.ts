@@ -98,9 +98,10 @@ export interface BeaconSettings {
   alarmSound: AlarmSoundId
   continuousAlarm: boolean
   // map
-  mapHue: number  // hue-rotate degrees for dark map filter (0–360)
+  mapHue: number // hue-rotate degrees for dark map filter (0–360)
   // beacon appearance
-  beaconColor: string  // CSS color string, e.g. "#ef4444"
+  beaconColor: string // CSS color string, e.g. "#ef4444"
+  markerSize: number // marker diameter in px
   // ui
-  panelWidth: number   // desktop left panel width in px (240–520)
+  panelWidth: number // desktop left panel width in px (240–520)
 }
