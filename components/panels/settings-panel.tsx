@@ -32,6 +32,9 @@ const DIRECTIONS: { value: Direction; label: string }[] = [
 
 const MIN_MARKER_SIZE = 30
 const MAX_MARKER_SIZE = 64
+const MIN_INTERVAL_MS = 1
+const DEFAULT_INTERVAL_MS = 5_000
+const MAX_INTERVAL_MS = 5 * 60_000
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -70,20 +73,62 @@ function SliderRow({ label, value, display, min, max, step, onChange, disabled }
   )
 }
 
+function formatInterval(ms: number) {
+  if (ms < 1000) return `${ms} мс`
+  if (ms < 60_000) return `${Number.isInteger(ms / 1000) ? ms / 1000 : (ms / 1000).toFixed(1)} с`
+  return `${Number.isInteger(ms / 60_000) ? ms / 60_000 : (ms / 60_000).toFixed(1)} мин`
+}
+
 function IntervalRow({ value, onChange, disabled }: { value: number; onChange: (v: number) => void; disabled?: boolean }) {
+  const safeValue = Math.max(MIN_INTERVAL_MS, Math.min(MAX_INTERVAL_MS, value || DEFAULT_INTERVAL_MS))
+
   return (
-    <div className={disabled ? "space-y-2 opacity-40 pointer-events-none" : "space-y-2"}>
+    <div className={disabled ? "space-y-3 opacity-40 pointer-events-none" : "space-y-3"}>
       <div className="flex items-center justify-between gap-2 text-sm">
-        <span className="font-medium">Интервал позиций</span>
+        <span className="font-medium">Интервал движения</span>
         <div className="flex items-center gap-1">
-          <input type="number" min={10} max={3600} step={1} value={Math.round(value / 1000)} disabled={disabled} onChange={(e) => { const v = Number(e.target.value); if (!Number.isNaN(v) && v >= 10 && v <= 3600) onChange(v * 1000) }} className="h-7 w-20 rounded-md bg-background px-2 text-right font-mono text-xs tabular-nums focus:outline-none focus:ring-1 focus:ring-ring" aria-label="Интервал позиций в секундах" />
-          <span className="text-xs text-muted-foreground">с</span>
+          <input
+            type="number"
+            min={MIN_INTERVAL_MS}
+            max={MAX_INTERVAL_MS}
+            step={1}
+            value={safeValue}
+            disabled={disabled}
+            onChange={(e) => {
+              const next = Number(e.target.value)
+              if (!Number.isNaN(next)) onChange(Math.max(MIN_INTERVAL_MS, Math.min(MAX_INTERVAL_MS, Math.round(next))))
+            }}
+            className="h-7 w-24 rounded-md bg-background px-2 text-right font-mono text-xs tabular-nums focus:outline-none focus:ring-1 focus:ring-ring"
+            aria-label="Интервал движения в миллисекундах"
+          />
+          <span className="text-xs text-muted-foreground">мс</span>
         </div>
       </div>
-      <Slider value={Math.min(Math.max(value / 1000, 10), 300)} min={10} max={300} step={5} disabled={disabled} onValueChange={(next) => onChange(getSliderNumber(next) * 1000)} aria-label="Интервал позиций" />
+      <Slider
+        value={safeValue}
+        min={MIN_INTERVAL_MS}
+        max={MAX_INTERVAL_MS}
+        step={100}
+        disabled={disabled}
+        onValueChange={(next) => onChange(Math.max(MIN_INTERVAL_MS, Math.min(MAX_INTERVAL_MS, Math.round(getSliderNumber(next)))))}
+        aria-label="Интервал движения"
+      />
+      <div className="flex flex-wrap gap-2">
+        {[500, 1000, DEFAULT_INTERVAL_MS, 10_000, 60_000, MAX_INTERVAL_MS].map((ms) => (
+          <button
+            key={ms}
+            type="button"
+            disabled={disabled}
+            onClick={() => onChange(ms)}
+            className="rounded-lg bg-background px-2.5 py-1.5 text-xs font-medium tabular-nums transition-colors hover:bg-accent disabled:opacity-40"
+          >
+            {formatInterval(ms)}
+          </button>
+        ))}
+      </div>
       <div className="flex justify-between text-[10px] text-muted-foreground">
-        <span>10 с</span>
-        <span className="tabular-nums">{value >= 60_000 ? `${(value / 60_000).toFixed(1)} мин` : `${Math.round(value / 1000)} с`}</span>
+        <span>1 мс</span>
+        <span className="tabular-nums">{formatInterval(safeValue)}</span>
         <span>5 мин</span>
       </div>
     </div>
