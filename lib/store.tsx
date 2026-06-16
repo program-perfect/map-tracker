@@ -226,7 +226,13 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
 
   const toggleTheme = useCallback(() => setTheme((t) => (t === "dark" ? "light" : "dark")), [])
   const toggleLayer = useCallback((l: MapLayer) => setLayers((prev) => ({ ...prev, [l]: !prev[l] })), [])
-  const setZoom = useCallback((z: number | ((z: number) => number)) => setZoomState((prev) => Math.max(2, Math.min(19, Math.round(typeof z === "function" ? z(prev) : z))), [])
+  const setZoom = useCallback(
+    (z: number | ((z: number) => number)) =>
+      setZoomState((prev) =>
+        Math.max(2, Math.min(19, Math.round(typeof z === "function" ? z(prev) : z)))
+      ),
+    []
+  )
   const toggleRotationMode = useCallback(() => setRotationMode((m) => (m === "north" ? "movement" : "north")), [])
   const requestCenter = useCallback((p?: LatLng) => setCenterRequest({ position: p ?? positionRef.current, nonce: Date.now() }), [])
   const updateSettings = useCallback((patch: Partial<BeaconSettings>) => {
