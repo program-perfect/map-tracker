@@ -26,7 +26,7 @@ export function BeaconMarker({
   const alarmActive = settings.visible && settings.soundEnabled && settings.continuousAlarm
   const pulseActive = settings.pulseEnabled && alarmActive
   const pulseDuration = Math.max(600, settings.pulseDurationMs ?? 1800)
-  const markerSize = Math.max(14, Math.min(64, settings.markerSize ?? 20))
+  const markerSize = Math.max(30, Math.min(64, settings.markerSize ?? 30))
   const ringSize = Math.max(markerSize + 8, Math.round(markerSize * 1.4))
   const innerRingSize = Math.max(markerSize, Math.round(markerSize * 1.15))
   const shineSize = Math.max(4, Math.round(markerSize * 0.32))
