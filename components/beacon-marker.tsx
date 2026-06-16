@@ -6,6 +6,9 @@ import { useStore } from "@/lib/store"
 import { playAlarm } from "@/lib/sound"
 import { cn } from "@/lib/utils"
 
+const LIGHT_BEACON_COLOR = "#ef4444"
+const DARK_BEACON_COLOR = "#33ccff"
+
 export function BeaconMarker({
   x,
   y,
@@ -62,7 +65,7 @@ export function BeaconMarker({
 
   useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current) }, [])
 
-  const color = settings.beaconColor ?? "#ef4444"
+  const color = theme === "dark" ? DARK_BEACON_COLOR : LIGHT_BEACON_COLOR
 
   const counterFilter =
     theme === "dark"
