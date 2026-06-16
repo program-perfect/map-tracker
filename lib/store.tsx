@@ -56,7 +56,9 @@ function uid(): string {
 
 const MIN_INTERVAL_MS = 10_000
 const DARK_DEFAULT_BEACON_COLOR = "#33ccff"
-const DEFAULT_MARKER_SIZE = 20
+const MIN_MARKER_SIZE = 30
+const DEFAULT_MARKER_SIZE = 30
+const MAX_MARKER_SIZE = 64
 
 const DEFAULT_SETTINGS: BeaconSettings = {
   visible: true,
@@ -240,7 +242,7 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
       ...prev,
       ...patch,
       intervalMs: Math.max(MIN_INTERVAL_MS, patch.intervalMs ?? prev.intervalMs),
-      markerSize: Math.max(14, Math.min(64, patch.markerSize ?? prev.markerSize ?? DEFAULT_MARKER_SIZE)),
+      markerSize: Math.max(MIN_MARKER_SIZE, Math.min(MAX_MARKER_SIZE, patch.markerSize ?? prev.markerSize ?? DEFAULT_MARKER_SIZE)),
       alarmSound: patch.alarmSound ?? prev.alarmSound ?? "warning",
       continuousAlarm: patch.continuousAlarm ?? prev.continuousAlarm ?? true,
     }))
@@ -379,7 +381,7 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
               to = moveByDistance(node.pos, step.stepMeters, nextHeading)
             } else {
               nextHeading = calcBearing(from, node.pos)
-              to = moveByDistance(from, step.stepMeters, nextHeading)
+              to = moveByDistance(from, node.pos, nextHeading)
             }
           } else {
             nextHeading = bearingFromDirection(s.direction)
