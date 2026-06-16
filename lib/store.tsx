@@ -1,37 +1,9 @@
 "use client"
 
-import {
-  SPB_ROUTE,
-  bearingFromDirection,
-  bearing as calcBearing,
-  distanceMeters,
-  moveByDistance,
-  nearestNode,
-  pickNextNode
-} from "@/lib/geo"
-import { playAlarm } from "@/lib/sound"
 import type {
   BeaconSettings,
-  Geofence,
-  HistoryEntry,
-  LatLng,
-  MapLayer,
-  PanelId,
-  RotationMode,
-  Scenario,
-  ScenarioStep,
-  ThemeMode,
-  TrackedObject,
+  Scenario
 } from "@/lib/types"
-import {
-  createContext,
-  use,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react"
 
 const SPB_STREETS = [
   "Невский проспект",
@@ -69,7 +41,7 @@ const DEFAULT_SETTINGS: BeaconSettings = {
   scenarioEnabled: false,
   activeScenarioId: null,
   pulseEnabled: true,
-  pulseDurationMs: 1800,
+  pulseDurationMs: 1100,
   pulseScale: 5,
   soundEnabled: true,
   soundVolume: 1,

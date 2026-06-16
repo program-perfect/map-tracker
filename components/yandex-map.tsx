@@ -1,11 +1,10 @@
 "use client"
 
+import { BeaconMarker } from "@/components/beacon-marker"
+import { useStore } from "@/lib/store"
+import { cn } from "@/lib/utils"
 import { useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
-import { useStore } from "@/lib/store"
-import { BeaconMarker } from "@/components/beacon-marker"
-import { cn } from "@/lib/utils"
-import type { LatLng } from "@/lib/types"
 
 const API_KEY = process.env.NEXT_PUBLIC_YANDEX_MAPS_API_KEY
 
