@@ -89,6 +89,7 @@ function IntervalRow({ value, onChange, disabled }: { value: number; onChange: (
 
 export function SettingsPanel() {
   const { settings, updateSettings, theme, toggleTheme, zoom, setZoom } = useStore()
+  const markerSize = settings.markerSize ?? 20
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
@@ -115,6 +116,8 @@ export function SettingsPanel() {
                 <span className="font-mono text-xs text-muted-foreground">{settings.beaconColor}</span>
               </label>
             </div>
+            <Divider />
+            <SliderRow label="Размер маркера" value={markerSize} display={`${markerSize} px`} min={14} max={64} step={2} onChange={(v) => updateSettings({ markerSize: v })} />
             <Divider />
             <ToggleRow label="Тёмная тема" desc="Синяя карта, тёмный интерфейс" checked={theme === "dark"} onChange={toggleTheme} />
           </Section>
