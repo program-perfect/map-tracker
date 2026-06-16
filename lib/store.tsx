@@ -54,7 +54,9 @@ function uid(): string {
   return Math.random().toString(36).slice(2, 10)
 }
 
-const MIN_INTERVAL_MS = 10_000
+const MIN_INTERVAL_MS = 1
+const DEFAULT_INTERVAL_MS = 5_000
+const MAX_INTERVAL_MS = 5 * 60_000
 const DARK_DEFAULT_BEACON_COLOR = "#33ccff"
 const MIN_MARKER_SIZE = 30
 const DEFAULT_MARKER_SIZE = 30
@@ -63,7 +65,7 @@ const MAX_MARKER_SIZE = 64
 const DEFAULT_SETTINGS: BeaconSettings = {
   visible: true,
   autoMove: false,
-  intervalMs: MIN_INTERVAL_MS,
+  intervalMs: DEFAULT_INTERVAL_MS,
   stepMeters: 18,
   direction: "NE",
   followRoute: true,
@@ -241,7 +243,7 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
     setSettings((prev) => ({
       ...prev,
       ...patch,
-      intervalMs: Math.max(MIN_INTERVAL_MS, patch.intervalMs ?? prev.intervalMs),
+      intervalMs: Math.max(MIN_INTERVAL_MS, Math.min(MAX_INTERVAL_MS, patch.intervalMs ?? prev.intervalMs ?? DEFAULT_INTERVAL_MS)),
       markerSize: Math.max(MIN_MARKER_SIZE, Math.min(MAX_MARKER_SIZE, patch.markerSize ?? prev.markerSize ?? DEFAULT_MARKER_SIZE)),
       alarmSound: patch.alarmSound ?? prev.alarmSound ?? "warning",
       continuousAlarm: patch.continuousAlarm ?? prev.continuousAlarm ?? true,
@@ -276,164 +278,154 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
   const performMove = useCallback(() => {
     const s = settingsRef.current
     const from = positionRef.current
-    let to: LatLng
-    let nextHeading: number
+    let next: LatLng
+    let headingNext = heading
     if (s.followRoute) {
       const node = currentNodeRef.current
-      const arrivalBearing = arrivalBearingRef.current
-      const distToNode = distanceMeters(from, node.pos)
-      if (distToNode <= s.stepMeters) {
-        const { node: nextNode, exitBearing } = pickNextNode(node, arrivalBearing)
-        currentNodeRef.current = nextNode
-        arrivalBearingRef.current = exitBearing
-        nextHeading = exitBearing
-        to = moveByDistance(node.pos, s.stepMeters, nextHeading)
-      } else {
-        nextHeading = calcBearing(from, node.pos)
-        to = moveByDistance(from, node.pos, nextHeading)
-      }
+      const picked = pickNextNode(node, SPB_ROUTE, arrivalBearingRef.current)
+      currentNodeRef.current = picked.node
+      next = picked.node
+      headingNext = picked.bearing
+      arrivalBearingRef.current = picked.bearing
     } else {
-      nextHeading = bearingFromDirection(s.direction)
-      to = moveByDistance(from, s.stepMeters, nextHeading)
-      currentNodeRef.current = nearestNode(to)
-      arrivalBearingRef.current = nextHeading
+      headingNext = bearingFromDirection(s.direction)
+      next = moveByDistance(from, headingNext, s.stepMeters)
     }
-    const dist = distanceMeters(from, to)
-    const speed = Math.round((dist / (s.intervalMs / 1000)) * 3.6)
-    stepCountRef.current += 1
-    const nextStreet = streetForIndex(stepCountRef.current)
-    setPosition(to)
-    setSpeedKmh(speed)
-    setStreet(nextStreet)
-    setMoving(true)
-    setHeading(nextHeading)
-    pushHistory({ position: to, speedKmh: speed, street: nextStreet, event: "move" })
+    const dist = distanceMeters(from, next)
+    setPosition(next)
+    positionRef.current = next
+    setHeading(headingNext)
+    setSpeedKmh(Math.round((dist / Math.max(1, s.intervalMs / 1000)) * 3.6))
+    const streetName = streetForIndex(++stepCountRef.current)
+    setStreet(streetName)
+    pushHistory({ position: next, speedKmh: Math.round((dist / Math.max(1, s.intervalMs / 1000)) * 3.6), street: streetName, event: "move", note: s.followRoute ? "Движение по улицам" : `Движение ${s.direction}` })
     if (s.soundEnabled && !s.continuousAlarm) playAlarm(s.alarmSound, s.soundVolume)
-    evaluateGeofences(to)
-    window.setTimeout(() => setMoving(false), Math.min(900, Math.max(100, s.intervalMs - 100)))
-  }, [evaluateGeofences, pushHistory])
+    evaluateGeofences(next)
+  }, [evaluateGeofences, heading, pushHistory])
 
   const moveOnce = useCallback(() => performMove(), [performMove])
-
   const placeBeacon = useCallback((pos: LatLng) => {
-    currentNodeRef.current = nearestNode(pos)
-    arrivalBearingRef.current = 45
-    stepCountRef.current += 1
-    const nextStreet = streetForIndex(stepCountRef.current)
     setPosition(pos)
+    positionRef.current = pos
+    currentNodeRef.current = nearestNode(pos)
     setSpeedKmh(0)
-    setStreet(nextStreet)
-    setMoving(false)
-    pushHistory({ position: pos, speedKmh: 0, street: nextStreet, event: "manual", note: "Маяк установлен вручную" })
+    const streetName = streetForIndex(++stepCountRef.current)
+    setStreet(streetName)
+    pushHistory({ position: pos, speedKmh: 0, street: streetName, event: "manual", note: "Маяк установлен вручную" })
     evaluateGeofences(pos)
   }, [evaluateGeofences, pushHistory])
 
   useEffect(() => {
-    if (!settings.autoMove || !settings.visible || settings.scheduledMove) return
-    const id = window.setInterval(() => performMove(), Math.max(MIN_INTERVAL_MS, settings.intervalMs))
-    return () => window.clearInterval(id)
-  }, [settings.autoMove, settings.visible, settings.scheduledMove, settings.intervalMs, performMove])
-
-  useEffect(() => {
-    if (!settings.scheduledMove || !settings.visible) return
-    const id = window.setInterval(() => {
-      const now = new Date()
-      const hh = String(now.getHours()).padStart(2, "0")
-      const mm = String(now.getMinutes()).padStart(2, "0")
-      if (`${hh}:${mm}` === settings.scheduleAt && now.getSeconds() === 0) performMove()
-    }, 1000)
-    return () => window.clearInterval(id)
-  }, [settings.scheduledMove, settings.visible, settings.scheduleAt, performMove])
-
-  const scenarioTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  useEffect(() => {
-    if (!settings.scenarioEnabled || !settings.activeScenarioId || !settings.visible) {
-      if (scenarioTimerRef.current) clearTimeout(scenarioTimerRef.current)
+    if (!settings.autoMove || settings.scenarioEnabled) {
+      setMoving(false)
       return
     }
+    setMoving(true)
+    const id = window.setInterval(performMove, settings.intervalMs)
+    return () => {
+      window.clearInterval(id)
+      setMoving(false)
+    }
+  }, [settings.autoMove, settings.intervalMs, settings.scenarioEnabled, performMove])
+
+  useEffect(() => {
+    if (!settings.scheduledMove) return
+    const id = window.setInterval(() => {
+      const [hh, mm] = settingsRef.current.scheduleAt.split(":").map(Number)
+      const now = new Date()
+      if (now.getHours() === hh && now.getMinutes() === mm && now.getSeconds() < 2) performMove()
+    }, 1000)
+    return () => window.clearInterval(id)
+  }, [performMove, settings.scheduledMove])
+
+  useEffect(() => {
+    if (!settings.scenarioEnabled || !settings.activeScenarioId) return
     const scenario = scenarios.find((s) => s.id === settings.activeScenarioId)
     if (!scenario || scenario.steps.length === 0) return
     let cancelled = false
-    function scheduleNext(stepIdx: number) {
+    let index = 0
+    setMoving(true)
+    const run = () => {
       if (cancelled) return
-      const step = scenario!.steps[stepIdx]
-      if (!step) return
-      scenarioTimerRef.current = setTimeout(() => {
+      const step = scenario.steps[index]
+      window.setTimeout(() => {
         if (cancelled) return
-        if (step.stepMeters > 0) {
-          const s = settingsRef.current
-          const from = positionRef.current
-          let nextHeading: number
-          let to: LatLng
-          if (step.direction) {
-            nextHeading = bearingFromDirection(step.direction)
-            to = moveByDistance(from, step.stepMeters, nextHeading)
-            currentNodeRef.current = nearestNode(to)
-            arrivalBearingRef.current = nextHeading
-          } else if (s.followRoute) {
-            const node = currentNodeRef.current
-            const distToNode = distanceMeters(from, node.pos)
-            if (distToNode <= step.stepMeters) {
-              const { node: nextNode, exitBearing } = pickNextNode(node, arrivalBearingRef.current)
-              currentNodeRef.current = nextNode
-              arrivalBearingRef.current = exitBearing
-              nextHeading = exitBearing
-              to = moveByDistance(node.pos, step.stepMeters, nextHeading)
-            } else {
-              nextHeading = calcBearing(from, node.pos)
-              to = moveByDistance(from, node.pos, nextHeading)
-            }
-          } else {
-            nextHeading = bearingFromDirection(s.direction)
-            to = moveByDistance(from, step.stepMeters, nextHeading)
+        const prev = settingsRef.current
+        settingsRef.current = { ...prev, followRoute: step.direction == null, direction: step.direction ?? prev.direction, stepMeters: step.stepMeters }
+        performMove()
+        settingsRef.current = prev
+        index += 1
+        if (index >= scenario.steps.length) {
+          if (scenario.loop) index = 0
+          else {
+            setSettings((prevSettings) => ({ ...prevSettings, scenarioEnabled: false }))
+            setMoving(false)
+            return
           }
-          const dist = distanceMeters(from, to)
-          const speed = Math.round((dist / (step.delayMs / 1000)) * 3.6)
-          stepCountRef.current += 1
-          const nextStreet = streetForIndex(stepCountRef.current)
-          setPosition(to)
-          setSpeedKmh(speed)
-          setStreet(nextStreet)
-          setMoving(true)
-          setHeading(nextHeading)
-          pushHistory({ position: to, speedKmh: speed, street: nextStreet, event: "move" })
-          if (s.soundEnabled && !s.continuousAlarm) playAlarm(s.alarmSound, s.soundVolume)
-          evaluateGeofences(to)
-          window.setTimeout(() => setMoving(false), Math.min(900, Math.max(100, step.delayMs - 50)))
         }
-        const nextIdx = stepIdx + 1
-        if (nextIdx < scenario!.steps.length) scheduleNext(nextIdx)
-        else if (scenario!.loop) scheduleNext(0)
+        run()
       }, step.delayMs)
     }
-    scheduleNext(0)
+    run()
     return () => {
       cancelled = true
-      if (scenarioTimerRef.current) clearTimeout(scenarioTimerRef.current)
+      setMoving(false)
     }
-  }, [settings.scenarioEnabled, settings.activeScenarioId, settings.visible, scenarios, evaluateGeofences, pushHistory])
+  }, [settings.scenarioEnabled, settings.activeScenarioId, scenarios, performMove])
 
-  const addScenario = useCallback(() => setScenarios((prev) => [...prev, { id: uid(), name: `Сценарий ${prev.length + 1}`, loop: true, steps: [{ id: uid(), delayMs: 2000, stepMeters: 20, direction: null }] }]), [])
+  const addGeofence = useCallback(() => setGeofences((prev) => [...prev, { id: uid(), name: `Геозона ${prev.length + 1}`, center: positionRef.current, radius: 500, active: true, color: "#22d3ee", alertOnEnter: true, alertOnExit: true }]), [])
+  const updateGeofence = useCallback((id: string, patch: Partial<Geofence>) => setGeofences((prev) => prev.map((g) => (g.id === id ? { ...g, ...patch } : g))), [])
+  const removeGeofence = useCallback((id: string) => setGeofences((prev) => prev.filter((g) => g.id !== id)), [])
+  const clearHistory = useCallback(() => setHistory([]), [])
+
+  const addScenario = useCallback(() => setScenarios((prev) => [...prev, { id: uid(), name: `Сценарий ${prev.length + 1}`, loop: true, steps: [{ id: uid(), delayMs: 1000, stepMeters: 20, direction: null }] }]), [])
   const updateScenario = useCallback((id: string, patch: Partial<Omit<Scenario, "id" | "steps">>) => setScenarios((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s))), [])
   const removeScenario = useCallback((id?: string) => {
     if (!id) return
     setScenarios((prev) => prev.filter((s) => s.id !== id))
-    setSettings((prev) => prev.activeScenarioId === id ? { ...prev, activeScenarioId: null, scenarioEnabled: false } : prev)
+    setSettings((prev) => ({ ...prev, activeScenarioId: prev.activeScenarioId === id ? null : prev.activeScenarioId, scenarioEnabled: prev.activeScenarioId === id ? false : prev.scenarioEnabled }))
   }, [])
-  const addScenarioStep = useCallback((scenarioId: string) => setScenarios((prev) => prev.map((s) => s.id === scenarioId ? { ...s, steps: [...s.steps, { id: uid(), delayMs: 2000, stepMeters: 20, direction: null }] } : s)), [])
-  const updateScenarioStep = useCallback((scenarioId: string, stepId: string, patch: Partial<ScenarioStep>) => setScenarios((prev) => prev.map((s) => s.id === scenarioId ? { ...s, steps: s.steps.map((st) => (st.id === stepId ? { ...st, ...patch } : st)) } : s)), [])
+  const addScenarioStep = useCallback((scenarioId: string) => setScenarios((prev) => prev.map((s) => s.id === scenarioId ? { ...s, steps: [...s.steps, { id: uid(), delayMs: 1000, stepMeters: 20, direction: null }] } : s)), [])
+  const updateScenarioStep = useCallback((scenarioId: string, stepId: string, patch: Partial<ScenarioStep>) => setScenarios((prev) => prev.map((s) => s.id === scenarioId ? { ...s, steps: s.steps.map((st) => st.id === stepId ? { ...st, ...patch } : st) } : s)), [])
   const removeScenarioStep = useCallback((scenarioId: string, stepId: string) => setScenarios((prev) => prev.map((s) => s.id === scenarioId ? { ...s, steps: s.steps.filter((st) => st.id !== stepId) } : s)), [])
-  const clearHistory = useCallback(() => { setHistory([]); insideRef.current = []; setInsideGeofenceIds([]) }, [])
-  const addGeofence = useCallback(() => setGeofences((prev) => [...prev, { id: uid(), name: `Геозона ${prev.length + 1}`, center: positionRef.current, radius: 800, active: true, color: "#a855f7", alertOnEnter: true, alertOnExit: true }]), [])
-  const updateGeofence = useCallback((id: string, patch: Partial<Geofence>) => setGeofences((prev) => prev.map((g) => (g.id === id ? { ...g, ...patch } : g))), [])
-  const removeGeofence = useCallback((id: string) => setGeofences((prev) => prev.filter((g) => g.id !== id)), [])
 
   const value = useMemo<StoreValue>(() => ({
-    theme, toggleTheme, activePanel, setActivePanel, layers, toggleLayer, zoom, setZoom,
-    rotationMode, toggleRotationMode, heading, centerRequest, requestCenter, settings, updateSettings,
-    position, speedKmh, street, moving, moveOnce, placeBeacon, objects, history, clearHistory,
-    geofences, addGeofence, updateGeofence, removeGeofence, insideGeofenceIds, scenarios,
-    addScenario, updateScenario, removeScenario, addScenarioStep, updateScenarioStep, removeScenarioStep,
+    theme,
+    toggleTheme,
+    activePanel,
+    setActivePanel,
+    layers,
+    toggleLayer,
+    zoom,
+    setZoom,
+    rotationMode,
+    toggleRotationMode,
+    heading,
+    centerRequest,
+    requestCenter,
+    settings,
+    updateSettings,
+    position,
+    speedKmh,
+    street,
+    moving,
+    moveOnce,
+    placeBeacon,
+    objects,
+    history,
+    clearHistory,
+    geofences,
+    addGeofence,
+    updateGeofence,
+    removeGeofence,
+    insideGeofenceIds,
+    scenarios,
+    addScenario,
+    updateScenario,
+    removeScenario,
+    addScenarioStep,
+    updateScenarioStep,
+    removeScenarioStep,
   }), [theme, toggleTheme, activePanel, layers, toggleLayer, zoom, setZoom, rotationMode, toggleRotationMode, heading, centerRequest, requestCenter, settings, updateSettings, position, speedKmh, street, moving, moveOnce, placeBeacon, objects, history, clearHistory, geofences, addGeofence, updateGeofence, removeGeofence, insideGeofenceIds, scenarios, addScenario, updateScenario, removeScenario, addScenarioStep, updateScenarioStep, removeScenarioStep])
 
   return <StoreContext value={value}>{children}</StoreContext>
