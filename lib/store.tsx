@@ -1,10 +1,13 @@
 "use client"
 
 import {
+  DEFAULT_ROUTE_POINTS_TEXT,
+  KZ_SPB_ROUTE_POINTS,
   SPB_ROUTE,
   bearingFromDirection,
   bearing as calcBearing,
   distanceMeters,
+  interpolateLatLng,
   moveByDistance,
   nearestNode,
   pickNextNode,
@@ -18,6 +21,7 @@ import type {
   MapLayer,
   PanelId,
   RotationMode,
+  RouteBuildStatus,
   Scenario,
   ScenarioStep,
   ThemeMode,
@@ -57,10 +61,16 @@ function uid(): string {
 const MIN_INTERVAL_MS = 1
 const DEFAULT_INTERVAL_MS = 5_000
 const MAX_INTERVAL_MS = 5 * 60_000
-const DARK_DEFAULT_BEACON_COLOR = "#33ccff"
+const LIGHT_DEFAULT_BEACON_COLOR = "#ef4444"
 const MIN_MARKER_SIZE = 30
 const DEFAULT_MARKER_SIZE = 30
 const MAX_MARKER_SIZE = 64
+const ROUTE_STREET_LABEL = "Маршрут Казахстан → Санкт-Петербург"
+
+type RouteCursor = {
+  segmentIndex: number
+  offsetMeters: number
+}
 
 const DEFAULT_SETTINGS: BeaconSettings = {
   visible: true,
@@ -69,6 +79,8 @@ const DEFAULT_SETTINGS: BeaconSettings = {
   stepMeters: 18,
   direction: "NE",
   followRoute: true,
+  routeMode: true,
+  routeLoop: false,
   scheduledMove: false,
   scheduleAt: "12:00",
   scenarioEnabled: false,
@@ -81,12 +93,23 @@ const DEFAULT_SETTINGS: BeaconSettings = {
   alarmSound: "warning",
   continuousAlarm: true,
   mapHue: 40,
-  beaconColor: DARK_DEFAULT_BEACON_COLOR,
+  beaconColor: LIGHT_DEFAULT_BEACON_COLOR,
   markerSize: DEFAULT_MARKER_SIZE,
   panelWidth: 340,
 }
 
 const DEFAULT_SCENARIOS: Scenario[] = [
+  {
+    id: "sc-kz-spb",
+    name: "Казахстан → Санкт-Петербург",
+    loop: false,
+    steps: [
+      { id: uid(), delayMs: 1000, stepMeters: 18000, direction: null },
+      { id: uid(), delayMs: 1000, stepMeters: 18000, direction: null },
+      { id: uid(), delayMs: 2500, stepMeters: 0, direction: null },
+      { id: uid(), delayMs: 1000, stepMeters: 22000, direction: null },
+    ],
+  },
   {
     id: "sc-patrol",
     name: "Патруль",
@@ -125,7 +148,7 @@ const DEFAULT_SCENARIOS: Scenario[] = [
 ]
 
 const INITIAL_OBJECTS: TrackedObject[] = [
-  { id: "beacon-1", name: "Маяк-01", type: "vehicle", online: true, battery: 87, position: SPB_ROUTE[0], street: "Невский проспект" },
+  { id: "beacon-1", name: "Маяк-01", type: "vehicle", online: true, battery: 87, position: KZ_SPB_ROUTE_POINTS[0], street: "Астана, Казахстан" },
   { id: "beacon-2", name: "Курьер-14", type: "person", online: true, battery: 62, position: [59.9311, 30.3609], street: "Лиговский проспект" },
   { id: "beacon-3", name: "Груз-А7", type: "asset", online: false, battery: 18, position: [59.9501, 30.3056], street: "Дворцовая набережная" },
 ]
@@ -134,6 +157,23 @@ const INITIAL_GEOFENCES: Geofence[] = [
   { id: uid(), name: "Центр", center: [59.9386, 30.3141], radius: 1200, active: true, color: "#a855f7", alertOnEnter: true, alertOnExit: true },
   { id: uid(), name: "Площадь Восстания", center: [59.9311, 30.3609], radius: 600, active: false, color: "#f59e0b", alertOnEnter: true, alertOnExit: false },
 ]
+
+function parseRoutePoints(text: string): LatLng[] {
+  return text
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const match = line.match(/(-?\d+(?:\.\d+)?)\s*[,;\s]\s*(-?\d+(?:\.\d+)?)/)
+      if (!match) return null
+      const lat = Number(match[1])
+      const lng = Number(match[2])
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null
+      if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return null
+      return [lat, lng] as LatLng
+    })
+    .filter((point): point is LatLng => point != null)
+}
 
 interface StoreValue {
   theme: ThemeMode
@@ -172,6 +212,15 @@ interface StoreValue {
   addScenarioStep: (scenarioId: string) => void
   updateScenarioStep: (scenarioId: string, stepId: string, patch: Partial<ScenarioStep>) => void
   removeScenarioStep: (scenarioId: string, stepId: string) => void
+  routePointsText: string
+  routePoints: LatLng[]
+  routePath: LatLng[]
+  routeStatus: RouteBuildStatus
+  routeError: string | null
+  updateRoutePointsText: (text: string) => void
+  applyRoutePointsText: () => void
+  setRoutePathFromMap: (path: LatLng[]) => void
+  setRouteBuildState: (status: RouteBuildStatus, error?: string | null) => void
 }
 
 const StoreContext = createContext<StoreValue | null>(null)
@@ -183,35 +232,45 @@ export function useStore(): StoreValue {
 }
 
 export function BeaconStoreProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setTheme] = useState<ThemeMode>("dark")
+  const [theme, setTheme] = useState<ThemeMode>("light")
   const [activePanel, setActivePanel] = useState<PanelId>("map")
   const [layers, setLayers] = useState<Record<MapLayer, boolean>>({ traffic: false, transport: false, roads: true, labels: true, buildings: true })
-  const [zoom, setZoomState] = useState(13)
+  const [zoom, setZoomState] = useState(5)
   const [rotationMode, setRotationMode] = useState<RotationMode>("north")
   const [heading, setHeading] = useState(0)
   const [centerRequest, setCenterRequest] = useState<StoreValue["centerRequest"]>(null)
   const [settings, setSettings] = useState<BeaconSettings>(DEFAULT_SETTINGS)
-  const [position, setPosition] = useState<LatLng>(SPB_ROUTE[0])
+  const [position, setPosition] = useState<LatLng>(KZ_SPB_ROUTE_POINTS[0])
   const [speedKmh, setSpeedKmh] = useState(0)
-  const [street, setStreet] = useState(SPB_STREETS[0])
+  const [street, setStreet] = useState(ROUTE_STREET_LABEL)
   const [moving, setMoving] = useState(false)
   const [objects] = useState<TrackedObject[]>(INITIAL_OBJECTS)
-  const [history, setHistory] = useState<HistoryEntry[]>([{ id: uid(), at: Date.now(), position: SPB_ROUTE[0], speedKmh: 0, street: SPB_STREETS[0], event: "start", note: "Отслеживание запущено" }])
+  const [history, setHistory] = useState<HistoryEntry[]>([{ id: uid(), at: Date.now(), position: KZ_SPB_ROUTE_POINTS[0], speedKmh: 0, street: ROUTE_STREET_LABEL, event: "start", note: "Маршрут Казахстан → Санкт-Петербург загружен" }])
   const [geofences, setGeofences] = useState<Geofence[]>(INITIAL_GEOFENCES)
   const [insideGeofenceIds, setInsideGeofenceIds] = useState<string[]>([])
   const [scenarios, setScenarios] = useState<Scenario[]>(DEFAULT_SCENARIOS)
+  const [routePointsText, setRoutePointsText] = useState(DEFAULT_ROUTE_POINTS_TEXT)
+  const [routePoints, setRoutePoints] = useState<LatLng[]>(KZ_SPB_ROUTE_POINTS)
+  const [routePath, setRoutePath] = useState<LatLng[]>([])
+  const [routeStatus, setRouteStatus] = useState<RouteBuildStatus>("idle")
+  const [routeError, setRouteError] = useState<string | null>(null)
 
   const stepCountRef = useRef(0)
   const currentNodeRef = useRef(nearestNode(SPB_ROUTE[0]))
   const arrivalBearingRef = useRef(45)
+  const routeCursorRef = useRef<RouteCursor>({ segmentIndex: 0, offsetMeters: 0 })
   const settingsRef = useRef(settings)
   const positionRef = useRef(position)
   const insideRef = useRef<string[]>(insideGeofenceIds)
   const geofencesRef = useRef(geofences)
+  const routePathRef = useRef(routePath)
+  const routePointsRef = useRef(routePoints)
   settingsRef.current = settings
   positionRef.current = position
   insideRef.current = insideGeofenceIds
   geofencesRef.current = geofences
+  routePathRef.current = routePath
+  routePointsRef.current = routePoints
 
   useEffect(() => {
     const root = document.documentElement
@@ -275,41 +334,152 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
     setInsideGeofenceIds(nowInside)
   }, [pushHistory])
 
+  const setRouteBuildState = useCallback((status: RouteBuildStatus, error?: string | null) => {
+    setRouteStatus(status)
+    if (error !== undefined) setRouteError(error)
+    if (status !== "error" && error === undefined) setRouteError(null)
+  }, [])
+
+  const setRoutePathFromMap = useCallback((path: LatLng[]) => {
+    routeCursorRef.current = { segmentIndex: 0, offsetMeters: 0 }
+    setRoutePath(path)
+    routePathRef.current = path
+    if (path.length >= 2) {
+      const start = path[0]
+      setPosition(start)
+      positionRef.current = start
+      setHeading(calcBearing(start, path[1]))
+      setSpeedKmh(0)
+      setStreet(ROUTE_STREET_LABEL)
+      setRouteStatus("ready")
+      setRouteError(null)
+      pushHistory({ position: start, speedKmh: 0, street: ROUTE_STREET_LABEL, event: "route", note: "Дорожный маршрут построен" })
+      evaluateGeofences(start)
+    }
+  }, [evaluateGeofences, pushHistory])
+
+  const updateRoutePointsText = useCallback((text: string) => {
+    setRoutePointsText(text)
+  }, [])
+
+  const applyRoutePointsText = useCallback(() => {
+    const parsed = parseRoutePoints(routePointsText)
+    if (parsed.length < 2) {
+      setRouteStatus("error")
+      setRouteError("Нужно минимум две точки: старт и назначение")
+      return
+    }
+    setRoutePoints(parsed)
+    routePointsRef.current = parsed
+    setRoutePath([])
+    routePathRef.current = []
+    routeCursorRef.current = { segmentIndex: 0, offsetMeters: 0 }
+    const start = parsed[0]
+    setPosition(start)
+    positionRef.current = start
+    setSpeedKmh(0)
+    setStreet(ROUTE_STREET_LABEL)
+    setRouteStatus("building")
+    setRouteError(null)
+    setSettings((prev) => ({ ...prev, routeMode: true, autoMove: false, scenarioEnabled: false }))
+    pushHistory({ position: start, speedKmh: 0, street: ROUTE_STREET_LABEL, event: "route", note: "Точки маршрута применены" })
+    evaluateGeofences(start)
+  }, [evaluateGeofences, pushHistory, routePointsText])
+
+  const performRouteMove = useCallback((stepMeters: number, intervalMs: number): LatLng | null => {
+    const path = routePathRef.current
+    if (path.length < 2) return null
+
+    let cursor = { ...routeCursorRef.current }
+    let remaining = Math.max(0, stepMeters)
+    let next = positionRef.current
+
+    if (remaining === 0) return next
+
+    while (remaining > 0 && cursor.segmentIndex < path.length - 1) {
+      const fromPoint = path[cursor.segmentIndex]
+      const toPoint = path[cursor.segmentIndex + 1]
+      const segmentLength = Math.max(0.01, distanceMeters(fromPoint, toPoint))
+      const available = Math.max(0, segmentLength - cursor.offsetMeters)
+
+      if (remaining <= available) {
+        cursor.offsetMeters += remaining
+        next = interpolateLatLng(fromPoint, toPoint, cursor.offsetMeters / segmentLength)
+        remaining = 0
+      } else {
+        remaining -= available
+        cursor.segmentIndex += 1
+        cursor.offsetMeters = 0
+        next = path[cursor.segmentIndex]
+      }
+    }
+
+    if (cursor.segmentIndex >= path.length - 1) {
+      const end = path[path.length - 1]
+      if (settingsRef.current.routeLoop) {
+        cursor = { segmentIndex: 0, offsetMeters: 0 }
+        next = path[0]
+      } else {
+        cursor = { segmentIndex: path.length - 1, offsetMeters: 0 }
+        next = end
+        setSettings((prev) => ({ ...prev, autoMove: false, scenarioEnabled: false }))
+        setMoving(false)
+        pushHistory({ position: end, speedKmh: 0, street: ROUTE_STREET_LABEL, event: "stop", note: "Маяк дошёл до точки назначения" })
+      }
+    }
+
+    routeCursorRef.current = cursor
+    return next
+  }, [pushHistory])
+
   const performMove = useCallback(() => {
     const s = settingsRef.current
     const from = positionRef.current
     let next: LatLng
     let headingNext = heading
-    if (s.followRoute) {
+
+    if (s.routeMode) {
+      const routeNext = performRouteMove(s.stepMeters, s.intervalMs)
+      if (!routeNext) {
+        setRouteStatus("error")
+        setRouteError("Маршрут ещё не построен. Проверьте точки и API Яндекс Карт.")
+        return
+      }
+      next = routeNext
+      if (distanceMeters(from, next) > 0.5) headingNext = calcBearing(from, next)
+    } else if (s.followRoute) {
       const node = currentNodeRef.current
-      const picked = pickNextNode(node, SPB_ROUTE, arrivalBearingRef.current)
+      const picked = pickNextNode(node, arrivalBearingRef.current)
       currentNodeRef.current = picked.node
-      next = picked.node
-      headingNext = picked.bearing
-      arrivalBearingRef.current = picked.bearing
+      next = picked.node.pos
+      headingNext = picked.exitBearing
+      arrivalBearingRef.current = picked.exitBearing
     } else {
       headingNext = bearingFromDirection(s.direction)
-      next = moveByDistance(from, headingNext, s.stepMeters)
+      next = moveByDistance(from, s.stepMeters, headingNext)
     }
+
     const dist = distanceMeters(from, next)
     setPosition(next)
     positionRef.current = next
     setHeading(headingNext)
-    setSpeedKmh(Math.round((dist / Math.max(1, s.intervalMs / 1000)) * 3.6))
-    const streetName = streetForIndex(++stepCountRef.current)
+    const currentSpeed = Math.round((dist / Math.max(1, s.intervalMs / 1000)) * 3.6)
+    setSpeedKmh(currentSpeed)
+    const streetName = s.routeMode ? ROUTE_STREET_LABEL : streetForIndex(++stepCountRef.current)
     setStreet(streetName)
-    pushHistory({ position: next, speedKmh: Math.round((dist / Math.max(1, s.intervalMs / 1000)) * 3.6), street: streetName, event: "move", note: s.followRoute ? "Движение по улицам" : `Движение ${s.direction}` })
+    pushHistory({ position: next, speedKmh: currentSpeed, street: streetName, event: "move", note: s.routeMode ? "Движение по дорожному маршруту" : s.followRoute ? "Движение по улицам" : `Движение ${s.direction}` })
     if (s.soundEnabled && !s.continuousAlarm) playAlarm(s.alarmSound, s.soundVolume)
     evaluateGeofences(next)
-  }, [evaluateGeofences, heading, pushHistory])
+  }, [evaluateGeofences, heading, performRouteMove, pushHistory])
 
   const moveOnce = useCallback(() => performMove(), [performMove])
   const placeBeacon = useCallback((pos: LatLng) => {
     setPosition(pos)
     positionRef.current = pos
     currentNodeRef.current = nearestNode(pos)
+    routeCursorRef.current = { segmentIndex: 0, offsetMeters: 0 }
     setSpeedKmh(0)
-    const streetName = streetForIndex(++stepCountRef.current)
+    const streetName = settingsRef.current.routeMode ? ROUTE_STREET_LABEL : streetForIndex(++stepCountRef.current)
     setStreet(streetName)
     pushHistory({ position: pos, speedKmh: 0, street: streetName, event: "manual", note: "Маяк установлен вручную" })
     evaluateGeofences(pos)
@@ -351,7 +521,13 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
       window.setTimeout(() => {
         if (cancelled) return
         const prev = settingsRef.current
-        settingsRef.current = { ...prev, followRoute: step.direction == null, direction: step.direction ?? prev.direction, stepMeters: step.stepMeters }
+        settingsRef.current = {
+          ...prev,
+          followRoute: step.direction == null,
+          routeMode: step.direction == null ? prev.routeMode : false,
+          direction: step.direction ?? prev.direction,
+          stepMeters: step.stepMeters,
+        }
         performMove()
         settingsRef.current = prev
         index += 1
@@ -426,7 +602,16 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
     addScenarioStep,
     updateScenarioStep,
     removeScenarioStep,
-  }), [theme, toggleTheme, activePanel, layers, toggleLayer, zoom, setZoom, rotationMode, toggleRotationMode, heading, centerRequest, requestCenter, settings, updateSettings, position, speedKmh, street, moving, moveOnce, placeBeacon, objects, history, clearHistory, geofences, addGeofence, updateGeofence, removeGeofence, insideGeofenceIds, scenarios, addScenario, updateScenario, removeScenario, addScenarioStep, updateScenarioStep, removeScenarioStep])
+    routePointsText,
+    routePoints,
+    routePath,
+    routeStatus,
+    routeError,
+    updateRoutePointsText,
+    applyRoutePointsText,
+    setRoutePathFromMap,
+    setRouteBuildState,
+  }), [theme, toggleTheme, activePanel, layers, toggleLayer, zoom, setZoom, rotationMode, toggleRotationMode, heading, centerRequest, requestCenter, settings, updateSettings, position, speedKmh, street, moving, moveOnce, placeBeacon, objects, history, clearHistory, geofences, addGeofence, updateGeofence, removeGeofence, insideGeofenceIds, scenarios, addScenario, updateScenario, removeScenario, addScenarioStep, updateScenarioStep, removeScenarioStep, routePointsText, routePoints, routePath, routeStatus, routeError, updateRoutePointsText, applyRoutePointsText, setRoutePathFromMap, setRouteBuildState])
 
   return <StoreContext value={value}>{children}</StoreContext>
 }

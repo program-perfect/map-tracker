@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/select"
 import { ALARM_SOUND_OPTIONS, playAlarm } from "@/lib/sound"
 import { getSliderNumber } from "@/lib/slider-value"
-import type { AlarmSoundId, Direction } from "@/lib/types"
+import type { AlarmSoundId, Direction, RouteBuildStatus } from "@/lib/types"
 import { DisplayModeSettings } from "@/components/display-mode-settings"
 
 const DIRECTIONS: { value: Direction; label: string }[] = [
@@ -79,6 +79,20 @@ function formatInterval(ms: number) {
   return `${Number.isInteger(ms / 60_000) ? ms / 60_000 : (ms / 60_000).toFixed(1)} мин`
 }
 
+function routeStatusLabel(status: RouteBuildStatus) {
+  switch (status) {
+    case "building":
+      return "строится"
+    case "ready":
+      return "готов"
+    case "error":
+      return "ошибка"
+    case "idle":
+    default:
+      return "выключен"
+  }
+}
+
 function IntervalRow({ value, onChange, disabled }: { value: number; onChange: (v: number) => void; disabled?: boolean }) {
   const safeValue = Math.max(MIN_INTERVAL_MS, Math.min(MAX_INTERVAL_MS, value || DEFAULT_INTERVAL_MS))
 
@@ -136,7 +150,20 @@ function IntervalRow({ value, onChange, disabled }: { value: number; onChange: (
 }
 
 export function SettingsPanel() {
-  const { settings, updateSettings, theme, toggleTheme, zoom, setZoom } = useStore()
+  const {
+    settings,
+    updateSettings,
+    theme,
+    toggleTheme,
+    zoom,
+    setZoom,
+    routePointsText,
+    routePath,
+    routeStatus,
+    routeError,
+    updateRoutePointsText,
+    applyRoutePointsText,
+  } = useStore()
   const markerSize = Math.max(MIN_MARKER_SIZE, Math.min(MAX_MARKER_SIZE, settings.markerSize ?? MIN_MARKER_SIZE))
 
   return (
@@ -177,19 +204,59 @@ export function SettingsPanel() {
             {theme !== "dark" && <p className="text-xs text-muted-foreground">Переключите в тёмную тему, чтобы изменить оттенок карты</p>}
           </Section>
 
+          <Section title="Маршрут Казахстан → Санкт-Петербург">
+            <ToggleRow
+              label="Режим маршрута"
+              desc="Маяк идёт по автомобильной геометрии Яндекс Карт, а не по прямой"
+              checked={settings.routeMode}
+              onChange={(v) => updateSettings({ routeMode: v, followRoute: v ? true : settings.followRoute })}
+            />
+            <Divider />
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-2 text-sm">
+                <span className="font-medium">Точки маршрута</span>
+                <span className="rounded-full bg-background px-2 py-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+                  {routeStatusLabel(routeStatus)} · {routePath.length} узл.
+                </span>
+              </div>
+              <textarea
+                value={routePointsText}
+                onChange={(e) => updateRoutePointsText(e.target.value)}
+                rows={8}
+                spellCheck={false}
+                className="min-h-40 w-full resize-y rounded-lg border border-border bg-background p-3 font-mono text-xs leading-relaxed outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/20"
+                aria-label="Точки маршрута"
+              />
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                Формат: одна координата на строку — широта, долгота. После применения карта строит автомобильный маршрут по дорогам и двигает точку по этой линии.
+              </p>
+              {routeError && <p className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-500">{routeError}</p>}
+              <button
+                type="button"
+                onClick={applyRoutePointsText}
+                className="w-full rounded-lg px-4 py-3 text-sm font-medium text-primary-foreground transition-all active:scale-[0.98]"
+                style={{ background: "var(--grad-primary)", boxShadow: "var(--glow-primary)" }}
+              >
+                Применить точки и перестроить маршрут
+              </button>
+            </div>
+            <Divider />
+            <ToggleRow label="Зациклить маршрут" desc="После Санкт-Петербурга возвращать маяк в стартовую точку" checked={settings.routeLoop} onChange={(v) => updateSettings({ routeLoop: v })} />
+          </Section>
+
           <Section title="Передвижение">
             <p className="text-xs text-muted-foreground">Нажмите на карту, чтобы установить маяк — отсюда он продолжит движение.</p>
-            <ToggleRow label="Автодвижение" desc="Маяк периодически смещается по улицам" checked={settings.autoMove} onChange={(v) => updateSettings({ autoMove: v })} />
+            <ToggleRow label="Автодвижение" desc="Маяк периодически смещается по дорогам" checked={settings.autoMove} onChange={(v) => updateSettings({ autoMove: v })} />
             <Divider />
             <IntervalRow value={settings.intervalMs} onChange={(v) => updateSettings({ intervalMs: v })} disabled={!settings.autoMove || settings.scenarioEnabled} />
             <Divider />
-            <ToggleRow label="Двигаться по улицам" desc="Перемещение по узлам дорожного графа" checked={settings.followRoute} onChange={(v) => updateSettings({ followRoute: v })} />
-            <div className="space-y-2"><span className="text-sm font-medium">Направление</span><Select value={settings.direction} onValueChange={(v) => updateSettings({ direction: v as Direction })} disabled={settings.followRoute}><SelectTrigger className="w-full" aria-label="Направление движения"><SelectValue /></SelectTrigger><SelectContent>{DIRECTIONS.map((d) => <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>)}</SelectContent></Select></div>
-            <SliderRow label="Шаг перемещения" value={settings.stepMeters} display={`${settings.stepMeters} м`} min={10} max={300} step={10} disabled={settings.followRoute} onChange={(v) => updateSettings({ stepMeters: v })} />
+            <ToggleRow label="Двигаться по дорогам" desc="В режиме маршрута используется красная дорожная линия; без него — локальный граф улиц" checked={settings.followRoute} onChange={(v) => updateSettings({ followRoute: v })} />
+            <div className="space-y-2"><span className="text-sm font-medium">Направление</span><Select value={settings.direction} onValueChange={(v) => updateSettings({ direction: v as Direction })} disabled={settings.followRoute || settings.routeMode}><SelectTrigger className="w-full" aria-label="Направление движения"><SelectValue /></SelectTrigger><SelectContent>{DIRECTIONS.map((d) => <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>)}</SelectContent></Select></div>
+            <SliderRow label="Шаг перемещения" value={settings.stepMeters} display={`${settings.stepMeters} м`} min={10} max={30000} step={10} onChange={(v) => updateSettings({ stepMeters: v })} />
           </Section>
 
           <Section title="Сценарии движения">
-            <p className="text-xs text-muted-foreground">Сценарий — это последовательность шагов с индивидуальной задержкой и расстоянием. При запуске сценария автодвижение отключается.</p>
+            <p className="text-xs text-muted-foreground">Сценарий — это последовательность шагов с индивидуальной задержкой и расстоянием. Если режим маршрута включён, шаги идут по красной дорожной линии.</p>
             <ScenarioEditor />
           </Section>
 
