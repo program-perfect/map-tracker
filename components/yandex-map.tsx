@@ -2,11 +2,13 @@
 
 import { BeaconMarker } from "@/components/beacon-marker"
 import { useStore } from "@/lib/store"
+import type { LatLng } from "@/lib/types"
 import { cn } from "@/lib/utils"
 import { useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 
 const API_KEY = process.env.NEXT_PUBLIC_YANDEX_MAPS_API_KEY
+const ROUTE_COLOR = "#ef4444"
 
 declare global {
   interface Window {
@@ -43,6 +45,26 @@ function loadYmaps21(): Promise<void> {
 
 type Status = "loading" | "ready" | "error"
 
+function collectCoordinates(value: any, out: LatLng[]) {
+  if (!Array.isArray(value)) return
+  if (value.length >= 2 && typeof value[0] === "number" && typeof value[1] === "number") {
+    out.push([value[0], value[1]])
+    return
+  }
+  for (const item of value) collectCoordinates(item, out)
+}
+
+function getRouteCoordinates(route: any): LatLng[] {
+  const coords: LatLng[] = []
+  try {
+    route.getPaths().each((path: any) => {
+      const raw = path.geometry?.getCoordinates?.()
+      collectCoordinates(raw, coords)
+    })
+  } catch {}
+  return coords
+}
+
 export function YandexMap() {
   const {
     layers,
@@ -55,24 +77,32 @@ export function YandexMap() {
     centerRequest,
     placeBeacon,
     theme,
+    routePoints,
+    routeStatus,
+    setRoutePathFromMap,
+    setRouteBuildState,
   } = useStore()
 
-  const containerRef  = useRef<HTMLDivElement>(null)
-  const wrapperRef    = useRef<HTMLDivElement>(null)
-  const mapRef        = useRef<any>(null)
-  const placemarkRef  = useRef<any>(null)
-  const trafficRef    = useRef<any>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const wrapperRef = useRef<HTMLDivElement>(null)
+  const mapRef = useRef<any>(null)
+  const placemarkRef = useRef<any>(null)
+  const trafficRef = useRef<any>(null)
+  const routeLineRef = useRef<any>(null)
+  const destinationRef = useRef<any>(null)
 
-  // DOM node that Yandex renders the custom placemark into, so we can portal BeaconMarker there
   const [markerHost, setMarkerHost] = useState<HTMLElement | null>(null)
 
-  // Stable refs so event handlers never capture stale values
   const placeBeaconRef = useRef(placeBeacon)
   placeBeaconRef.current = placeBeacon
   const setZoomRef = useRef(setZoom)
   setZoomRef.current = setZoom
   const zoomRef = useRef(zoom)
   zoomRef.current = zoom
+  const setRoutePathFromMapRef = useRef(setRoutePathFromMap)
+  setRoutePathFromMapRef.current = setRoutePathFromMap
+  const setRouteBuildStateRef = useRef(setRouteBuildState)
+  setRouteBuildStateRef.current = setRouteBuildState
 
   const [status, setStatus] = useState<Status>(API_KEY ? "loading" : "error")
   useEffect(() => {
@@ -91,26 +121,20 @@ export function YandexMap() {
         )
         mapRef.current = map
 
-        // Disable Yandex promo balloon
         try { map.copyrights.togglePromo(false) } catch {}
 
-        // Sync zoom from user interaction
         map.events.add("boundschange", () => {
           if (cancelled) return
           const z = Math.round(map.getZoom())
           if (z !== zoomRef.current) setZoomRef.current(z)
         })
 
-        // Click on map → place beacon at that coordinate
         map.events.add("click", (e: any) => {
           if (cancelled) return
           const coords: [number, number] = e.get("coords")
           placeBeaconRef.current([coords[0], coords[1]])
         })
 
-        // Custom HTML placemark — Yandex handles all geo→pixel projection internally.
-        // We create a host <div>, portal our React BeaconMarker into it, and pass
-        // it to ymaps as an HTML layout so it always sits exactly on the coordinate.
         const Layout = ymaps.templateLayoutFactory.createClass(
           '<div id="beacon-layout-host" style="position:relative;width:0;height:0;overflow:visible;"></div>',
           {
@@ -148,13 +172,14 @@ export function YandexMap() {
         mapRef.current = null
         placemarkRef.current = null
         trafficRef.current = null
+        routeLineRef.current = null
+        destinationRef.current = null
         scriptPromise = null
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // ── Traffic layer ──────────────────────────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current
     const ymaps = window.ymaps
@@ -177,10 +202,6 @@ export function YandexMap() {
     }
   }, [layers.traffic, status])
 
-  // ── Labels layer — hide/show map text via injected style ──────────────────
-  // Yandex Maps 2.1 renders labels as a separate tile layer in its own pane.
-  // We use version-agnostic attribute selectors so the rule survives SDK
-  // patch updates that change the minor version in class names.
   useEffect(() => {
     const id = "ymaps-labels-override"
     let el = document.getElementById(id) as HTMLStyleElement | null
@@ -192,7 +213,6 @@ export function YandexMap() {
         document.head.appendChild(el)
       }
       el.textContent = `
-        /* Version-agnostic: target any Yandex pane that carries place labels */
         [class*="ymaps"][class*="places-pane"],
         [class*="ymaps"][class*="places-pane"] *,
         [class*="ymaps"][class*="labels"],
@@ -208,6 +228,92 @@ export function YandexMap() {
       if (layers.labels) document.getElementById("ymaps-labels-override")?.remove()
     }
   }, [layers.labels])
+
+  useEffect(() => {
+    const map = mapRef.current
+    const ymaps = window.ymaps
+    if (!map || !ymaps || status !== "ready") return
+
+    const clearRoute = () => {
+      if (routeLineRef.current) {
+        try { map.geoObjects.remove(routeLineRef.current) } catch {}
+        routeLineRef.current = null
+      }
+      if (destinationRef.current) {
+        try { map.geoObjects.remove(destinationRef.current) } catch {}
+        destinationRef.current = null
+      }
+    }
+
+    clearRoute()
+
+    if (!settings.routeMode) {
+      setRouteBuildStateRef.current("idle")
+      return clearRoute
+    }
+
+    if (routePoints.length < 2) {
+      setRouteBuildStateRef.current("error", "Нужно минимум две точки маршрута")
+      return clearRoute
+    }
+
+    let cancelled = false
+    setRouteBuildStateRef.current("building")
+
+    ymaps.route(routePoints, { routingMode: "auto" })
+      .then((route: any) => {
+        if (cancelled) return
+
+        const coords = getRouteCoordinates(route)
+        if (coords.length < 2) {
+          setRouteBuildStateRef.current("error", "Яндекс не вернул дорожную геометрию маршрута")
+          return
+        }
+
+        const routeLine = new ymaps.Polyline(
+          coords,
+          { hintContent: "Казахстан → Санкт-Петербург" },
+          {
+            strokeColor: ROUTE_COLOR,
+            strokeOpacity: 0.96,
+            strokeWidth: 4,
+            strokeStyle: "solid",
+          },
+        )
+        routeLineRef.current = routeLine
+        map.geoObjects.add(routeLine)
+
+        const destination = routePoints[routePoints.length - 1]
+        const destinationMarker = new ymaps.Placemark(
+          destination,
+          { hintContent: "Санкт-Петербург" },
+          {
+            preset: "islands#redDotIcon",
+            iconColor: ROUTE_COLOR,
+          },
+        )
+        destinationRef.current = destinationMarker
+        map.geoObjects.add(destinationMarker)
+
+        setRoutePathFromMapRef.current(coords)
+
+        try {
+          const bounds = routeLine.geometry.getBounds?.() ?? route.getBounds?.()
+          if (bounds) map.setBounds(bounds, { checkZoomRange: true, zoomMargin: 64, duration: 450 })
+        } catch {}
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setRouteBuildStateRef.current("error", "Не удалось построить автомобильный маршрут по дорогам")
+        }
+      })
+
+    return () => {
+      cancelled = true
+      clearRoute()
+    }
+  }, [routePoints, settings.routeMode, status])
+
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
@@ -233,7 +339,6 @@ export function YandexMap() {
     }
   }, [status])
 
-  // ── Center request ─────────────────────────────────────────────────────────
   useEffect(() => {
     const map = mapRef.current
     if (!map || !centerRequest) return
@@ -241,23 +346,18 @@ export function YandexMap() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [centerRequest])
 
-  // ── Sync placemark coordinate when position changes ────────────────────────
   useEffect(() => {
     if (placemarkRef.current) {
       try { placemarkRef.current.geometry.setCoordinates([position[0], position[1]]) } catch {}
     }
   }, [position])
 
-  // ── Render ─────────────────────────────────────────────────────────────────
-  // The outer wrapper overflows by CROP_PX on all sides so the Yandex logo
-  // strip at the bottom AND the injected traffic/branding buttons are clipped.
   const CROP = 52
   return (
     <div
       className="absolute inset-0 overflow-hidden"
       style={{ borderRadius: "inherit" }}
     >
-      {/* negative margin exposes extra map area that gets clipped by overflow:hidden above */}
       <div
         ref={wrapperRef}
         className="absolute"
@@ -267,15 +367,12 @@ export function YandexMap() {
           ref={containerRef}
           className={cn(
             "absolute inset-0",
-            // CSS dark theme: invert(90%) hue-rotate(180deg) turns the light
-            // Yandex tiles into a dark map without any filter on our UI layer.
             theme === "dark" && status === "ready" && "map-dark-filter",
           )}
-          aria-label="Карта Санкт-Петербурга"
+          aria-label="Карта маршрута Казахстан — Санкт-Петербург"
         />
       </div>
 
-      {/* Loading state */}
       {status === "loading" && (
         <div className="absolute inset-0 grid place-items-center bg-background">
           <div className="flex items-center gap-3 text-muted-foreground">
@@ -285,7 +382,6 @@ export function YandexMap() {
         </div>
       )}
 
-      {/* Error / no key */}
       {status === "error" && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-muted/80 text-sm text-muted-foreground">
           <span>Карта недоступна</span>
@@ -293,8 +389,12 @@ export function YandexMap() {
         </div>
       )}
 
-      {/* Beacon marker — portalled into Yandex's own placemark DOM node so
-          the library handles geo→pixel positioning with no manual math */}
+      {status === "ready" && settings.routeMode && routeStatus === "building" && (
+        <div className="pointer-events-none absolute left-4 top-4 rounded-full bg-card/95 px-3 py-1.5 text-xs font-medium text-muted-foreground shadow backdrop-blur">
+          Построение маршрута по дорогам…
+        </div>
+      )}
+
       {markerHost && settings.visible && status === "ready" &&
         createPortal(<BeaconMarker centered />, markerHost)}
     </div>
