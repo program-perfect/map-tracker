@@ -355,46 +355,7 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
   routePathRef.current = routePath
   routePointsRef.current = routePoints
 
-  useEffect(() => {
-    if (!storageReady) return
-    if (!canUseBrowserGeolocation()) return
-    if (wasInitialGeolocationUsed()) return
 
-    markInitialGeolocationUsed()
-
-    navigator.geolocation.getCurrentPosition(
-      (geoPosition) => {
-        const next: LatLng = [
-          geoPosition.coords.latitude,
-          geoPosition.coords.longitude,
-        ]
-
-        setPosition(next)
-        positionRef.current = next
-        currentNodeRef.current = nearestNode(next)
-        routeCursorRef.current = { segmentIndex: 0, offsetMeters: 0 }
-        setSpeedKmh(0)
-        setStreet(USER_LOCATION_STREET_LABEL)
-        setCenterRequest({ position: next, nonce: Date.now() })
-        pushHistory({
-          position: next,
-          speedKmh: 0,
-          street: USER_LOCATION_STREET_LABEL,
-          event: "manual",
-          note: "Маяк установлен по текущему местоположению при входе",
-        })
-        evaluateGeofences(next)
-      },
-      () => {
-        // Permission denied, timeout, or unsupported provider: keep default app behavior.
-      },
-      {
-        enableHighAccuracy: false,
-        timeout: 4500,
-        maximumAge: 10 * 60 * 1000,
-      }
-    )
-  }, [evaluateGeofences, pushHistory, storageReady])
 
   useEffect(() => {
     const root = document.documentElement
@@ -633,6 +594,47 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
     pushHistory({ position: pos, speedKmh: 0, street: streetName, event: "manual", note: "Маяк установлен вручную" })
     evaluateGeofences(pos)
   }, [evaluateGeofences, pushHistory])
+
+  useEffect(() => {
+    if (!storageReady) return
+    if (!canUseBrowserGeolocation()) return
+    if (wasInitialGeolocationUsed()) return
+
+    markInitialGeolocationUsed()
+
+    navigator.geolocation.getCurrentPosition(
+      (geoPosition) => {
+        const next: LatLng = [
+          geoPosition.coords.latitude,
+          geoPosition.coords.longitude,
+        ]
+
+        setPosition(next)
+        positionRef.current = next
+        currentNodeRef.current = nearestNode(next)
+        routeCursorRef.current = { segmentIndex: 0, offsetMeters: 0 }
+        setSpeedKmh(0)
+        setStreet(USER_LOCATION_STREET_LABEL)
+        setCenterRequest({ position: next, nonce: Date.now() })
+        pushHistory({
+          position: next,
+          speedKmh: 0,
+          street: USER_LOCATION_STREET_LABEL,
+          event: "manual",
+          note: "Маяк установлен по текущему местоположению при входе",
+        })
+        evaluateGeofences(next)
+      },
+      () => {
+        // Permission denied, timeout, or unsupported provider: keep default app behavior.
+      },
+      {
+        enableHighAccuracy: false,
+        timeout: 4500,
+        maximumAge: 10 * 60 * 1000,
+      }
+    )
+  }, [evaluateGeofences, pushHistory, storageReady])
 
   useEffect(() => {
     if (!settings.autoMove || settings.scenarioEnabled) {
