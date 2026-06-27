@@ -223,7 +223,7 @@ export function AppShell() {
         </div>
 
         {/* right map controls */}
-        <div className="pointer-events-auto absolute right-3 top-1/2 -translate-y-1/2">
+        <div className="pointer-events-auto absolute right-3 top-[calc(5.75rem+env(safe-area-inset-top))]">
           <MapControls />
         </div>
 
