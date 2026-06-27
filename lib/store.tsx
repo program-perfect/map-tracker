@@ -78,7 +78,7 @@ const DEFAULT_SETTINGS: BeaconSettings = {
   visible: true,
   autoMove: false,
   intervalMs: DEFAULT_INTERVAL_MS,
-  stepMeters: 18,
+  stepMeters: 5,
   direction: "NE",
   followRoute: true,
   routeMode: false,
@@ -340,6 +340,7 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
 
   const stepCountRef = useRef(0)
   const currentNodeRef = useRef(nearestNode(SPB_ROUTE[0]))
+  const streetTargetNodeRef = useRef<ReturnType<typeof nearestNode> | null>(null)
   const arrivalBearingRef = useRef(45)
   const routeCursorRef = useRef<RouteCursor>({ segmentIndex: 0, offsetMeters: 0 })
   const settingsRef = useRef(settings)
@@ -427,6 +428,7 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
 
   const setRoutePathFromMap = useCallback((path: LatLng[]) => {
     routeCursorRef.current = { segmentIndex: 0, offsetMeters: 0 }
+    streetTargetNodeRef.current = null
     setRoutePath(path)
     routePathRef.current = path
     if (path.length >= 2) {
@@ -459,6 +461,7 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
     setRoutePath([])
     routePathRef.current = []
     routeCursorRef.current = { segmentIndex: 0, offsetMeters: 0 }
+    streetTargetNodeRef.current = null
     const start = parsed[0]
     setPosition(start)
     positionRef.current = start
@@ -491,9 +494,61 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
     setMoving(false)
 
     positionRef.current = start
+    currentNodeRef.current = nearestNode(start)
+    streetTargetNodeRef.current = null
     routePointsRef.current = KZ_SPB_ROUTE_POINTS
     routePathRef.current = []
     routeCursorRef.current = { segmentIndex: 0, offsetMeters: 0 }
+    streetTargetNodeRef.current = null
+  }, [])
+
+  const performStreetMove = useCallback((stepMeters: number): { next: LatLng; headingNext: number } => {
+    let remaining = Math.max(0, stepMeters)
+    let current = positionRef.current
+    let currentNode = currentNodeRef.current
+    let target = streetTargetNodeRef.current
+    let headingNext = arrivalBearingRef.current
+
+    if (remaining === 0) {
+      return { next: current, headingNext }
+    }
+
+    while (remaining > 0) {
+      if (!target) {
+        const distanceToCurrentNode = distanceMeters(current, currentNode.pos)
+
+        if (distanceToCurrentNode > 1) {
+          // If the marker was placed manually away from the graph, first walk to the nearest road node.
+          target = currentNode
+          headingNext = calcBearing(current, target.pos)
+        } else {
+          const picked = pickNextNode(currentNode, arrivalBearingRef.current)
+          target = picked.node
+          headingNext = picked.exitBearing
+          arrivalBearingRef.current = picked.exitBearing
+        }
+
+        streetTargetNodeRef.current = target
+      }
+
+      const distanceToTarget = distanceMeters(current, target.pos)
+
+      if (distanceToTarget <= remaining) {
+        remaining -= distanceToTarget
+        current = target.pos
+        currentNode = target
+        currentNodeRef.current = target
+        streetTargetNodeRef.current = null
+        target = null
+        continue
+      }
+
+      headingNext = calcBearing(current, target.pos)
+      current = moveByDistance(current, remaining, headingNext)
+      remaining = 0
+    }
+
+    return { next: current, headingNext }
   }, [])
 
   const performRouteMove = useCallback((stepMeters: number, intervalMs: number): LatLng | null => {
@@ -558,12 +613,9 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
       next = routeNext
       if (distanceMeters(from, next) > 0.5) headingNext = calcBearing(from, next)
     } else if (s.followRoute) {
-      const node = currentNodeRef.current
-      const picked = pickNextNode(node, arrivalBearingRef.current)
-      currentNodeRef.current = picked.node
-      next = picked.node.pos
-      headingNext = picked.exitBearing
-      arrivalBearingRef.current = picked.exitBearing
+      const streetMove = performStreetMove(s.stepMeters)
+      next = streetMove.next
+      headingNext = streetMove.headingNext
     } else {
       headingNext = bearingFromDirection(s.direction)
       next = moveByDistance(from, s.stepMeters, headingNext)
@@ -580,7 +632,7 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
     pushHistory({ position: next, speedKmh: currentSpeed, street: streetName, event: "move", note: s.routeMode ? "Движение по дорожному маршруту" : s.followRoute ? "Движение по улицам" : `Движение ${s.direction}` })
     if (s.soundEnabled && !s.continuousAlarm) playAlarm(s.alarmSound, s.soundVolume)
     evaluateGeofences(next)
-  }, [evaluateGeofences, heading, performRouteMove, pushHistory])
+  }, [evaluateGeofences, heading, performRouteMove, performStreetMove, pushHistory])
 
   const moveOnce = useCallback(() => performMove(), [performMove])
   const placeBeacon = useCallback((pos: LatLng) => {
@@ -588,6 +640,7 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
     positionRef.current = pos
     currentNodeRef.current = nearestNode(pos)
     routeCursorRef.current = { segmentIndex: 0, offsetMeters: 0 }
+    streetTargetNodeRef.current = null
     setSpeedKmh(0)
     const streetName = settingsRef.current.routeMode ? ROUTE_STREET_LABEL : streetForIndex(++stepCountRef.current)
     setStreet(streetName)
@@ -612,7 +665,9 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
         setPosition(next)
         positionRef.current = next
         currentNodeRef.current = nearestNode(next)
+        streetTargetNodeRef.current = null
         routeCursorRef.current = { segmentIndex: 0, offsetMeters: 0 }
+    streetTargetNodeRef.current = null
         setSpeedKmh(0)
         setStreet(USER_LOCATION_STREET_LABEL)
         setCenterRequest({ position: next, nonce: Date.now() })

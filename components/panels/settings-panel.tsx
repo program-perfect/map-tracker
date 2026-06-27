@@ -272,7 +272,7 @@ export function SettingsPanel() {
             <Divider />
             <ToggleRow label="Двигаться по дорогам" desc="В режиме маршрута используется красная дорожная линия; без него — локальный граф улиц" checked={settings.followRoute} onChange={(v) => updateSettings({ followRoute: v })} />
             <div className="space-y-2"><span className="text-sm font-medium">Направление</span><Select value={settings.direction} onValueChange={(v) => updateSettings({ direction: v as Direction })} disabled={settings.followRoute || settings.routeMode}><SelectTrigger className="w-full" aria-label="Направление движения"><SelectValue /></SelectTrigger><SelectContent>{DIRECTIONS.map((d) => <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>)}</SelectContent></Select></div>
-            <SliderRow label="Шаг перемещения" value={settings.stepMeters} display={`${settings.stepMeters} м`} min={10} max={30000} step={10} onChange={(v) => updateSettings({ stepMeters: v })} />
+            <SliderRow label="Шаг перемещения" value={settings.stepMeters} display={`${settings.stepMeters} м`} min={1} max={30000} step={1} onChange={(v) => updateSettings({ stepMeters: v })} />
           </Section>
 
           <Section title="Сценарии движения">
