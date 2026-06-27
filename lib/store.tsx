@@ -66,6 +66,8 @@ const MIN_MARKER_SIZE = 30
 const DEFAULT_MARKER_SIZE = 30
 const MAX_MARKER_SIZE = 64
 const ROUTE_STREET_LABEL = "Маршрут Казахстан → Санкт-Петербург"
+const USER_LOCATION_STREET_LABEL = "Текущее местоположение"
+const INITIAL_GEOLOCATION_DONE_KEY = "map-tracker:initial-geolocation-done"
 
 type RouteCursor = {
   segmentIndex: number
@@ -151,6 +153,29 @@ function clearPersistedStoreState() {
 
   try {
     window.localStorage.removeItem(PERSISTED_STORE_KEY)
+    window.sessionStorage.removeItem(INITIAL_GEOLOCATION_DONE_KEY)
+  } catch {}
+}
+
+function canUseBrowserGeolocation() {
+  return typeof window !== "undefined" && "geolocation" in navigator
+}
+
+function wasInitialGeolocationUsed() {
+  if (typeof window === "undefined") return true
+
+  try {
+    return window.sessionStorage.getItem(INITIAL_GEOLOCATION_DONE_KEY) === "1"
+  } catch {
+    return false
+  }
+}
+
+function markInitialGeolocationUsed() {
+  if (typeof window === "undefined") return
+
+  try {
+    window.sessionStorage.setItem(INITIAL_GEOLOCATION_DONE_KEY, "1")
   } catch {}
 }
 
@@ -329,6 +354,47 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
   geofencesRef.current = geofences
   routePathRef.current = routePath
   routePointsRef.current = routePoints
+
+  useEffect(() => {
+    if (!storageReady) return
+    if (!canUseBrowserGeolocation()) return
+    if (wasInitialGeolocationUsed()) return
+
+    markInitialGeolocationUsed()
+
+    navigator.geolocation.getCurrentPosition(
+      (geoPosition) => {
+        const next: LatLng = [
+          geoPosition.coords.latitude,
+          geoPosition.coords.longitude,
+        ]
+
+        setPosition(next)
+        positionRef.current = next
+        currentNodeRef.current = nearestNode(next)
+        routeCursorRef.current = { segmentIndex: 0, offsetMeters: 0 }
+        setSpeedKmh(0)
+        setStreet(USER_LOCATION_STREET_LABEL)
+        setCenterRequest({ position: next, nonce: Date.now() })
+        pushHistory({
+          position: next,
+          speedKmh: 0,
+          street: USER_LOCATION_STREET_LABEL,
+          event: "manual",
+          note: "Маяк установлен по текущему местоположению при входе",
+        })
+        evaluateGeofences(next)
+      },
+      () => {
+        // Permission denied, timeout, or unsupported provider: keep default app behavior.
+      },
+      {
+        enableHighAccuracy: false,
+        timeout: 4500,
+        maximumAge: 10 * 60 * 1000,
+      }
+    )
+  }, [evaluateGeofences, pushHistory, storageReady])
 
   useEffect(() => {
     const root = document.documentElement
