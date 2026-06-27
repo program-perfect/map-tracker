@@ -182,11 +182,11 @@ export function DisplayModeManager() {
 
     if (!preferences.fullscreenEnabledByDefault) return
 
+    // Fullscreen is blocked by browsers unless it is started from a user gesture.
+    // Do not call it immediately on mount: that creates console errors and extra work.
     const tryEnterFullscreen = () => {
       void enterFullscreen()
     }
-
-    void enterFullscreen()
 
     window.addEventListener("pointerdown", tryEnterFullscreen, { once: true })
     window.addEventListener("keydown", tryEnterFullscreen, { once: true })

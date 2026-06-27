@@ -16,6 +16,37 @@ import { useEffect, useRef, useState } from "react"
 const MOBILE_NAV_HEIGHT = 84
 const FULLSCREEN_DRAG_THRESHOLD = 34
 
+function useMediaQuery(query: string) {
+  const [matches, setMatches] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    const media = window.matchMedia(query)
+    const update = () => setMatches(media.matches)
+    update()
+
+    if (media.addEventListener) {
+      media.addEventListener("change", update)
+      return () => media.removeEventListener("change", update)
+    }
+
+    media.addListener(update)
+    return () => media.removeListener(update)
+  }, [query])
+
+  return matches
+}
+
+function useLowEndDevice() {
+  const [lowEnd, setLowEnd] = useState(false)
+
+  useEffect(() => {
+    const nav = navigator as Navigator & { deviceMemory?: number; connection?: { saveData?: boolean } }
+    setLowEnd(Boolean((nav.hardwareConcurrency && nav.hardwareConcurrency <= 4) || (nav.deviceMemory && nav.deviceMemory <= 4) || nav.connection?.saveData))
+  }, [])
+
+  return lowEnd
+}
+
 function usePrefersReducedMotion() {
   const [reduced, setReduced] = useState(false)
 
@@ -38,11 +69,14 @@ export function AppShell() {
   const [mobilePanelExpanded, setMobilePanelExpanded] = useState(false)
   const dragStartYRef = useRef<number | null>(null)
   const mapLeft = collapsed ? railWidth : railWidth + panelWidth
+  const isDesktop = useMediaQuery("(min-width: 1024px)")
+  const lowEndDevice = useLowEndDevice()
   const prefersReducedMotion = usePrefersReducedMotion()
-  const mobileSheetTransition = prefersReducedMotion
+  const preferSimpleUi = prefersReducedMotion || lowEndDevice
+  const mobileSheetTransition = preferSimpleUi
     ? "transition-none"
     : "transition-[bottom,top,max-height,border-radius,transform,opacity] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
-  const mobileContentTransition = prefersReducedMotion
+  const mobileContentTransition = preferSimpleUi
     ? "transition-none"
     : "transition-[height,opacity,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
 
@@ -58,12 +92,12 @@ export function AppShell() {
   }, [activePanel])
 
   useEffect(() => {
-    const delay = prefersReducedMotion ? 0 : 330
+    const delay = preferSimpleUi ? 0 : 330
     const id = window.setTimeout(() => {
       window.dispatchEvent(new Event("resize"))
     }, delay)
     return () => window.clearTimeout(id)
-  }, [mobilePanelExpanded, prefersReducedMotion])
+  }, [mobilePanelExpanded, preferSimpleUi])
 
   function handleMobileHandlePointerDown(event: React.PointerEvent<HTMLButtonElement>) {
     dragStartYRef.current = event.clientY
@@ -86,17 +120,24 @@ export function AppShell() {
   return (
     <div className="relative h-dvh w-full overflow-hidden bg-card/95 text-foreground dark:bg-card/95">
       {/* Desktop map sheet: its left edge moves with the panel and clips the map with soft corners. */}
-      <div
-        className="absolute bottom-0 right-0 top-0 hidden overflow-hidden rounded-l-[28px] bg-card/95 shadow-[0_24px_80px_-36px_rgb(0_0_0/0.28)] transition-[left,border-radius] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] dark:bg-background dark:shadow-[0_24px_80px_-36px_rgb(0_0_0/0.45)] lg:block"
-        style={{ left: mapLeft }}
-      >
-        <YandexMap />
-      </div>
+      {isDesktop === true && (
+        <div
+          className={cn(
+            "absolute bottom-0 right-0 top-0 hidden overflow-hidden rounded-l-[28px] bg-card/95 shadow-[0_24px_80px_-36px_rgb(0_0_0/0.28)] dark:bg-background dark:shadow-[0_24px_80px_-36px_rgb(0_0_0/0.45)] lg:block",
+            preferSimpleUi ? "transition-none" : "transition-[left,border-radius] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
+          )}
+          style={{ left: mapLeft }}
+        >
+          <YandexMap />
+        </div>
+      )}
 
       {/* Mobile keeps the map full-bleed. */}
-      <div className="absolute inset-0 bg-background lg:hidden">
-        <YandexMap />
-      </div>
+      {isDesktop === false && (
+        <div className="absolute inset-0 bg-background lg:hidden">
+          <YandexMap />
+        </div>
+      )}
 
       {/* ============ DESKTOP (lg+) ============ */}
       <div className="pointer-events-none absolute inset-0 hidden lg:flex lg:flex-row">
@@ -110,14 +151,14 @@ export function AppShell() {
         <div
           className={cn(
             "pointer-events-auto h-full shrink-0 overflow-visible",
-            "transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
+            preferSimpleUi ? "transition-none" : "transition-[width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
           )}
           style={{ width: collapsed ? 0 : panelWidth }}
         >
           <div
             className={cn(
               "h-full overflow-hidden rounded-r-[28px] bg-card/95 shadow-[18px_0_60px_-34px_rgb(0_0_0/0.18)] backdrop-blur-2xl dark:shadow-[18px_0_60px_-34px_rgb(0_0_0/0.5)]",
-              "transition-[transform,opacity] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
+              preferSimpleUi ? "transition-none" : "transition-[transform,opacity] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
               collapsed ? "-translate-x-4 opacity-0" : "translate-x-0 opacity-100 animate-fade-in",
             )}
             style={{ width: panelWidth }}
@@ -214,7 +255,7 @@ export function AppShell() {
               <span
                 className={cn(
                   "h-1 rounded-full bg-primary/35",
-                  prefersReducedMotion ? "w-12" : "transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
+                  preferSimpleUi ? "w-12" : "transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
                   mobilePanelExpanded ? "w-16 bg-primary/55" : "w-12 group-active:w-16",
                 )}
               />

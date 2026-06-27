@@ -9,6 +9,8 @@ import { createPortal } from "react-dom"
 
 const API_KEY = process.env.NEXT_PUBLIC_YANDEX_MAPS_API_KEY
 const ROUTE_COLOR = "#ef4444"
+const MAX_ROUTE_WAYPOINTS = 12
+const STARTUP_ROUTE_DELAY_MS = 900
 
 declare global { interface Window { ymaps?: any } }
 
@@ -78,22 +80,41 @@ function pushLeg(result: LatLng[], from: LatLng, to: LatLng) {
   result.push(to)
 }
 
-async function buildSegmentedRoadRoute(ymaps: any, points: LatLng[]): Promise<LatLng[]> {
+function buildFallbackRoute(points: LatLng[]): LatLng[] {
   const result: LatLng[] = []
   for (let i = 0; i < points.length - 1; i += 1) {
-    const from = points[i]
-    const to = points[i + 1]
-    try {
-      const segmentRoute = await ymaps.route([from, to], { routingMode: "auto" })
-      const segmentCoords = getRouteCoordinates(segmentRoute)
-      if (segmentCoords.length >= 2) {
-        result.push(...(result.length === 0 ? segmentCoords : segmentCoords.slice(1)))
-        continue
-      }
-    } catch {}
-    pushLeg(result, from, to)
+    pushLeg(result, points[i], points[i + 1])
   }
   return result
+}
+
+function limitWaypoints(points: LatLng[], maxPoints = MAX_ROUTE_WAYPOINTS): LatLng[] {
+  if (points.length <= maxPoints) return points
+  const result: LatLng[] = []
+  const last = points.length - 1
+
+  for (let i = 0; i < maxPoints; i += 1) {
+    result.push(points[Math.round((i / (maxPoints - 1)) * last)])
+  }
+
+  return result
+}
+
+async function buildRoadRoute(ymaps: any, points: LatLng[]): Promise<LatLng[]> {
+  // The previous implementation requested every road leg separately. On the
+  // current trace this produced dozens of route requests on page load. Try one
+  // multi-point request first and fall back to the lightweight straight polyline
+  // when the routing service is denied, slow, or unavailable.
+  try {
+    const route = await ymaps.route(limitWaypoints(points), {
+      routingMode: "auto",
+      mapStateAutoApply: false,
+    })
+    const coords = getRouteCoordinates(route)
+    if (coords.length >= 2) return coords
+  } catch {}
+
+  return buildFallbackRoute(points)
 }
 
 export function YandexMap() {
@@ -144,6 +165,8 @@ export function YandexMap() {
         const map = new ymaps.Map(containerRef.current, { center: [position[0], position[1]], zoom, controls: [] }, { suppressMapOpenBlock: true, copyrightUseMapMargin: false })
         mapRef.current = map
         try { map.copyrights.togglePromo(false) } catch {}
+        try { map.behaviors.disable(["scrollZoom", "rightMouseButtonMagnifier"]) } catch {}
+        try { map.options.set("avoidFractionalZoom", true) } catch {}
         map.events.add("boundschange", () => {
           if (cancelled) return
           const z = Math.round(map.getZoom())
@@ -180,7 +203,6 @@ export function YandexMap() {
         trafficRef.current = null
         routeLineRef.current = null
         destinationRef.current = null
-        scriptPromise = null
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -239,32 +261,49 @@ export function YandexMap() {
     }
 
     let cancelled = false
+    let routeTimer: number | null = null
+    let idleCallbackId: number | null = null
     setRouteBuildStateRef.current("building")
-    buildSegmentedRoadRoute(ymaps, routePoints)
-      .then((coords) => {
-        if (cancelled) return
-        if (coords.length < 2) {
-          setRouteBuildStateRef.current("error", "No route geometry")
-          return
-        }
-        const routeLine = new ymaps.Polyline(coords, { hintContent: "KZ SPB" }, { strokeColor: ROUTE_COLOR, strokeOpacity: 0.96, strokeWidth: 4, strokeStyle: "solid" })
-        routeLineRef.current = routeLine
-        map.geoObjects.add(routeLine)
-        const destination = routePoints[routePoints.length - 1]
-        const destinationMarker = new ymaps.Placemark(destination, { hintContent: "SPB" }, { preset: "islands#redDotIcon", iconColor: ROUTE_COLOR })
-        destinationRef.current = destinationMarker
-        map.geoObjects.add(destinationMarker)
-        setRoutePathFromMapRef.current(coords)
-        try {
-          const bounds = routeLine.geometry.getBounds?.()
-          if (bounds) map.setBounds(bounds, { checkZoomRange: true, zoomMargin: 64, duration: 450 })
-        } catch {}
-      })
-      .catch(() => {
-        if (!cancelled) setRouteBuildStateRef.current("error", "No route geometry")
-      })
 
-    return () => { cancelled = true; clearRoute() }
+    const buildRoute = () => {
+      if (cancelled) return
+      void buildRoadRoute(ymaps, routePoints)
+        .then((coords) => {
+          if (cancelled) return
+          if (coords.length < 2) {
+            setRouteBuildStateRef.current("error", "No route geometry")
+            return
+          }
+          const routeLine = new ymaps.Polyline(coords, { hintContent: "KZ SPB" }, { strokeColor: ROUTE_COLOR, strokeOpacity: 0.96, strokeWidth: 4, strokeStyle: "solid" })
+          routeLineRef.current = routeLine
+          map.geoObjects.add(routeLine)
+          const destination = routePoints[routePoints.length - 1]
+          const destinationMarker = new ymaps.Placemark(destination, { hintContent: "SPB" }, { preset: "islands#redDotIcon", iconColor: ROUTE_COLOR })
+          destinationRef.current = destinationMarker
+          map.geoObjects.add(destinationMarker)
+          setRoutePathFromMapRef.current(coords)
+          try {
+            const bounds = routeLine.geometry.getBounds?.()
+            if (bounds) map.setBounds(bounds, { checkZoomRange: true, zoomMargin: 64, duration: 0 })
+          } catch {}
+        })
+        .catch(() => {
+          if (!cancelled) setRouteBuildStateRef.current("error", "No route geometry")
+        })
+    }
+
+    if ("requestIdleCallback" in window) {
+      idleCallbackId = (window as any).requestIdleCallback(buildRoute, { timeout: STARTUP_ROUTE_DELAY_MS })
+    } else {
+      routeTimer = window.setTimeout(buildRoute, STARTUP_ROUTE_DELAY_MS)
+    }
+
+    return () => {
+      cancelled = true
+      if (idleCallbackId != null && "cancelIdleCallback" in window) (window as any).cancelIdleCallback(idleCallbackId)
+      if (routeTimer != null) window.clearTimeout(routeTimer)
+      clearRoute()
+    }
   }, [routePoints, settings.routeMode, status])
 
   useEffect(() => {
