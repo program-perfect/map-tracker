@@ -1,33 +1,88 @@
-# map-tracker
+# Map Tracker
 
-This is a [Next.js](https://nextjs.org) project bootstrapped with [v0](https://v0.app).
+[![Next.js](https://img.shields.io/badge/Next.js-16.2.6-black?logo=nextdotjs)](https://nextjs.org/)
+[![React](https://img.shields.io/badge/React-19-61DAFB?logo=react\&logoColor=black)](https://react.dev/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.7.3-3178C6?logo=typescript\&logoColor=white)](https://www.typescriptlang.org/)
+[![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-4.2-38BDF8?logo=tailwindcss\&logoColor=white)](https://tailwindcss.com/)
+[![pnpm](https://img.shields.io/badge/pnpm-ready-F69220?logo=pnpm\&logoColor=white)](https://pnpm.io/)
+[![Vercel](https://img.shields.io/badge/deploy-Vercel-black?logo=vercel)](https://map-tracker-sooty.vercel.app/)
+[![GitHub last commit](https://img.shields.io/github/last-commit/program-perfect/map-tracker?logo=github)](https://github.com/program-perfect/map-tracker/commits/main)
+[![Repository size](https://img.shields.io/github/repo-size/program-perfect/map-tracker?logo=github)](https://github.com/program-perfect/map-tracker)
 
-## Built with v0
+Интерактивный веб-интерфейс для отслеживания маяка на карте: движение по дорогам, ручное смещение точки, сценарии движения, настройки отображения, сохранение состояния между сессиями и адаптация под слабые устройства.
 
-This repository is linked to a [v0](https://v0.app) project. You can continue developing by visiting the link below -- start new chats to make changes, and v0 will push commits directly to this repo. Every merge to `main` will automatically deploy.
+## Возможности
 
-[Continue working on v0 →](https://v0.app/chat/projects/prj_Gw35Hm1N4WUulqs5iAV7flY5kZQk)
+* карта на базе Yandex Maps;
+* маяк с настраиваемым цветом, размером, пульсацией и звуком;
+* автодвижение по локальному дорожному графу;
+* режим маршрута с построением дорожной линии;
+* ручное смещение точки кликом по карте;
+* сохранение настроек и позиции маяка в `localStorage`;
+* отдельный сброс позиции маяка и полный сброс настроек;
+* мобильная и desktop-версия интерфейса;
+* оптимизации под слабые компьютеры и старые устройства.
 
-## Getting Started
+## Технологии
 
-First, run the development server:
+* Next.js 16;
+* React 19;
+* TypeScript;
+* Tailwind CSS 4;
+* Base UI;
+* Yandex Maps API;
+* Vercel Analytics;
+* pnpm.
+
+## Запуск
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
+pnpm install
 pnpm dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Открой:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```txt
+http://localhost:3000
+```
 
-## Learn More
+## Production build
 
-To learn more, take a look at the following resources:
+```bash
+pnpm build
+pnpm start
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-- [v0 Documentation](https://v0.app/docs) - learn about v0 and how to use it.
+## Переменные окружения
+
+Для карты нужен ключ Yandex Maps API:
+
+```env
+NEXT_PUBLIC_YANDEX_MAPS_API_KEY=your_key_here
+```
+
+Опционально можно включить аналитику:
+
+```env
+NEXT_PUBLIC_ENABLE_ANALYTICS=1
+```
+
+## Основные команды
+
+```bash
+pnpm dev
+pnpm build
+pnpm start
+pnpm lint
+```
+
+## Деплой
+
+Проект рассчитан на деплой в Vercel.
+
+Production: https://map-tracker-sooty.vercel.app/
+
+## Примечание
+
+Проект использует локальное хранение настроек. Если новые значения по умолчанию не применяются после обновления, сбрось настройки в интерфейсе.
