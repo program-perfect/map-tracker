@@ -79,7 +79,7 @@ const DEFAULT_SETTINGS: BeaconSettings = {
   stepMeters: 18,
   direction: "NE",
   followRoute: true,
-  routeMode: true,
+  routeMode: false,
   routeLoop: false,
   scheduledMove: false,
   scheduleAt: "12:00",
