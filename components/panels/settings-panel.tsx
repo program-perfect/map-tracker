@@ -1,5 +1,7 @@
 "use client"
 
+import { useState } from "react"
+
 import { useStore } from "@/lib/store"
 import { PanelHeader } from "@/components/panels/panel-header"
 import { ScenarioEditor } from "@/components/panels/scenario-editor"
@@ -215,6 +217,7 @@ export function SettingsPanel() {
     settings,
     updateSettings,
     resetSettings,
+    resetPosition,
     theme,
     toggleTheme,
     zoom,
@@ -227,6 +230,7 @@ export function SettingsPanel() {
     applyRoutePointsText,
   } = useStore()
   const markerSize = Math.max(MIN_MARKER_SIZE, Math.min(MAX_MARKER_SIZE, settings.markerSize ?? MIN_MARKER_SIZE))
+  const [resetDialogOpen, setResetDialogOpen] = useState(false)
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
@@ -237,22 +241,26 @@ export function SettingsPanel() {
       <ScrollArea hideScrollbar className="min-h-0 flex-1 overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]">
         <div className="space-y-6 px-4 py-5 pb-[calc(2rem+env(safe-area-inset-bottom))]">
           <DisplayModeSettings />
-
           <Section title="Сброс">
             <div className="space-y-3">
               <p className="text-xs leading-relaxed text-muted-foreground">
-                Возвращает тему, карту, маршрут, маяк, звук, пульсацию, интервалы и остальные параметры к значениям по умолчанию. Локально сохранённые настройки тоже очищаются.
+                Положение точки сохраняется между сессиями. Его можно сбросить отдельно или вместе со всеми настройками.
               </p>
+
               <button
                 type="button"
-                onClick={() => {
-                  if (typeof window === "undefined" || window.confirm("Сбросить все локальные настройки?")) {
-                    resetSettings()
-                  }
-                }}
+                onClick={resetPosition}
+                className="w-full rounded-lg border border-border bg-background px-4 py-3 text-sm font-semibold transition-colors hover:bg-accent active:scale-[0.98]"
+              >
+                Сбросить положение точки
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setResetDialogOpen(true)}
                 className="w-full rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm font-semibold text-destructive transition-colors hover:bg-destructive/15 active:scale-[0.98]"
               >
-                Сбросить настройки
+                Сбросить все настройки
               </button>
             </div>
           </Section>
@@ -376,6 +384,44 @@ export function SettingsPanel() {
           </Section>
         </div>
       </ScrollArea>
+
+      {resetDialogOpen && (
+        <div className="fixed inset-0 z-[1000] grid place-items-center bg-black/40 px-4 backdrop-blur-sm">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="reset-settings-title"
+            className="w-full max-w-sm rounded-2xl border border-border bg-card p-5 text-card-foreground shadow-2xl"
+          >
+            <h2 id="reset-settings-title" className="text-base font-semibold">
+              Подтвердить сброс
+            </h2>
+            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+              Будут сброшены все настройки, маршрут, звук, отображение и положение точки. Локально сохранённые данные будут перезаписаны значениями по умолчанию.
+            </p>
+
+            <div className="mt-5 flex gap-2">
+              <button
+                type="button"
+                onClick={() => setResetDialogOpen(false)}
+                className="flex-1 rounded-lg border border-border bg-background px-4 py-2.5 text-sm font-medium transition-colors hover:bg-accent"
+              >
+                Отмена
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  resetSettings()
+                  setResetDialogOpen(false)
+                }}
+                className="flex-1 rounded-lg bg-destructive px-4 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90"
+              >
+                Сбросить
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

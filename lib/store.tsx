@@ -66,6 +66,7 @@ const MIN_MARKER_SIZE = 30
 const DEFAULT_MARKER_SIZE = 30
 const MAX_MARKER_SIZE = 64
 const ROUTE_STREET_LABEL = "Маршрут Казахстан → Санкт-Петербург"
+const PERSISTED_BEACON_POSITION_KEY = "map-tracker:beacon-position:v1"
 const ROAD_SNAP_MAX_METERS = 2500
 const USER_LOCATION_STREET_LABEL = "Текущее местоположение"
 const INITIAL_GEOLOCATION_DONE_KEY = "map-tracker:initial-geolocation-done"
@@ -181,6 +182,49 @@ function markInitialGeolocationUsed() {
   } catch {}
 }
 
+function isValidBeaconPosition(value: unknown): value is LatLng {
+  return (
+    Array.isArray(value) &&
+    value.length === 2 &&
+    typeof value[0] === "number" &&
+    typeof value[1] === "number" &&
+    Number.isFinite(value[0]) &&
+    Number.isFinite(value[1]) &&
+    Math.abs(value[0]) <= 90 &&
+    Math.abs(value[1]) <= 180
+  )
+}
+
+function readPersistedBeaconPosition(): LatLng | null {
+  if (typeof window === "undefined") return null
+
+  try {
+    const raw = window.localStorage.getItem(PERSISTED_BEACON_POSITION_KEY)
+    if (!raw) return null
+
+    const parsed = JSON.parse(raw)
+    return isValidBeaconPosition(parsed) ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+function writePersistedBeaconPosition(position: LatLng) {
+  if (typeof window === "undefined") return
+
+  try {
+    window.localStorage.setItem(PERSISTED_BEACON_POSITION_KEY, JSON.stringify(position))
+  } catch {}
+}
+
+function clearPersistedBeaconPosition() {
+  if (typeof window === "undefined") return
+
+  try {
+    window.localStorage.removeItem(PERSISTED_BEACON_POSITION_KEY)
+  } catch {}
+}
+
 const DEFAULT_SCENARIOS: Scenario[] = [
   {
     id: "sc-kz-spb",
@@ -275,6 +319,7 @@ interface StoreValue {
   settings: BeaconSettings
   updateSettings: (patch: Partial<BeaconSettings>) => void
   resetSettings: () => void
+  resetPosition: () => void
   position: LatLng
   speedKmh: number
   street: string
@@ -347,6 +392,7 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
   const routeCursorRef = useRef<RouteCursor>({ segmentIndex: 0, offsetMeters: 0 })
   const settingsRef = useRef(settings)
   const positionRef = useRef(position)
+  const persistedPositionLoadedRef = useRef(false)
   const insideRef = useRef<string[]>(insideGeofenceIds)
   const geofencesRef = useRef(geofences)
   const routePathRef = useRef(routePath)
@@ -476,8 +522,37 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
     evaluateGeofences(start)
   }, [evaluateGeofences, pushHistory, routePointsText])
 
+  const resetPosition = useCallback(() => {
+    const start = KZ_SPB_ROUTE_POINTS[0]
+
+    clearPersistedBeaconPosition()
+
+    setPosition(start)
+    positionRef.current = start
+    currentNodeRef.current = nearestNode(start)
+    streetTargetNodeRef.current = null
+    routeCursorRef.current = { segmentIndex: 0, offsetMeters: 0 }
+    setSpeedKmh(0)
+    setStreet(ROUTE_STREET_LABEL)
+    setMoving(false)
+    setCenterRequest({ position: start, nonce: Date.now() })
+
+    writePersistedBeaconPosition(start)
+
+    pushHistory({
+      position: start,
+      speedKmh: 0,
+      street: ROUTE_STREET_LABEL,
+      event: "manual",
+      note: "Положение маяка сброшено",
+    })
+
+    evaluateGeofences(start)
+  }, [evaluateGeofences, pushHistory])
+
   const resetSettings = useCallback(() => {
     clearPersistedStoreState()
+    clearPersistedBeaconPosition()
 
     const start = KZ_SPB_ROUTE_POINTS[0]
 
@@ -652,6 +727,7 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
 
   useEffect(() => {
     if (!storageReady) return
+    if (persistedPositionLoadedRef.current) return
     if (!canUseBrowserGeolocation()) return
     if (wasInitialGeolocationUsed()) return
 
@@ -790,6 +866,7 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
     settings,
     updateSettings,
     resetSettings,
+    resetPosition,
     position,
     speedKmh,
     street,
@@ -820,7 +897,7 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
     applyRoutePointsText,
     setRoutePathFromMap,
     setRouteBuildState,
-  }), [theme, toggleTheme, activePanel, layers, toggleLayer, zoom, setZoom, rotationMode, toggleRotationMode, heading, centerRequest, requestCenter, settings, updateSettings, resetSettings, position, speedKmh, street, moving, moveOnce, placeBeacon, objects, history, clearHistory, geofences, addGeofence, updateGeofence, removeGeofence, insideGeofenceIds, scenarios, addScenario, updateScenario, removeScenario, addScenarioStep, updateScenarioStep, removeScenarioStep, routePointsText, routePoints, routePath, routeStatus, routeError, updateRoutePointsText, applyRoutePointsText, setRoutePathFromMap, setRouteBuildState])
+  }), [theme, toggleTheme, activePanel, layers, toggleLayer, zoom, setZoom, rotationMode, toggleRotationMode, heading, centerRequest, requestCenter, settings, updateSettings, resetSettings, resetPosition, position, speedKmh, street, moving, moveOnce, placeBeacon, objects, history, clearHistory, geofences, addGeofence, updateGeofence, removeGeofence, insideGeofenceIds, scenarios, addScenario, updateScenario, removeScenario, addScenarioStep, updateScenarioStep, removeScenarioStep, routePointsText, routePoints, routePath, routeStatus, routeError, updateRoutePointsText, applyRoutePointsText, setRoutePathFromMap, setRouteBuildState])
 
   return <StoreContext value={value}>{children}</StoreContext>
 }
