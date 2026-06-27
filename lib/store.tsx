@@ -404,6 +404,75 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
   routePathRef.current = routePath
   routePointsRef.current = routePoints
 
+  // POSITION_PERSISTENCE_BOOTSTRAP
+  useEffect(() => {
+    const persisted = readPersistedStoreState()
+
+    if (persisted) {
+      if (persisted.theme === "light" || persisted.theme === "dark") {
+        setTheme(persisted.theme)
+      }
+
+      if (persisted.layers) {
+        setLayers({ ...DEFAULT_LAYERS, ...persisted.layers })
+      }
+
+      if (typeof persisted.zoom === "number") {
+        setZoomState(Math.max(2, Math.min(19, Math.round(persisted.zoom))))
+      }
+
+      if (persisted.settings) {
+        setSettings({ ...DEFAULT_SETTINGS, ...persisted.settings })
+      }
+
+      if (typeof persisted.routePointsText === "string") {
+        setRoutePointsText(persisted.routePointsText)
+
+        const parsed = parseRoutePoints(persisted.routePointsText)
+        if (parsed.length >= 2) {
+          setRoutePoints(parsed)
+          routePointsRef.current = parsed
+          setRoutePath([])
+          routePathRef.current = []
+          routeCursorRef.current = { segmentIndex: 0, offsetMeters: 0 }
+          if (typeof streetTargetNodeRef !== "undefined") streetTargetNodeRef.current = null
+        }
+      }
+    }
+
+    const restoredPosition = readPersistedBeaconPosition()
+
+    if (restoredPosition) {
+      persistedPositionLoadedRef.current = true
+
+      setPosition(restoredPosition)
+      positionRef.current = restoredPosition
+      currentNodeRef.current = nearestNode(restoredPosition)
+      if (typeof streetTargetNodeRef !== "undefined") streetTargetNodeRef.current = null
+      routeCursorRef.current = { segmentIndex: 0, offsetMeters: 0 }
+      setSpeedKmh(0)
+      setStreet("Сохранённая позиция")
+      setCenterRequest({ position: restoredPosition, nonce: Date.now() })
+    }
+
+    setStorageReady(true)
+  }, [])
+
+  useEffect(() => {
+    if (!storageReady) return
+
+    writePersistedStoreState({
+      version: PERSISTED_STORE_VERSION,
+      theme,
+      layers,
+      zoom,
+      settings,
+      routePointsText,
+    })
+
+    writePersistedBeaconPosition(position)
+  }, [storageReady, theme, layers, zoom, settings, routePointsText, position])
+
 
 
   useEffect(() => {
@@ -701,6 +770,7 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
     const dist = distanceMeters(from, next)
     setPosition(next)
     positionRef.current = next
+    writePersistedBeaconPosition(next)
     setHeading(headingNext)
     const currentSpeed = Math.round((dist / Math.max(1, s.intervalMs / 1000)) * 3.6)
     setSpeedKmh(currentSpeed)
@@ -715,6 +785,7 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
   const placeBeacon = useCallback((pos: LatLng) => {
     setPosition(pos)
     positionRef.current = pos
+    writePersistedBeaconPosition(pos)
     currentNodeRef.current = nearestNode(pos)
     routeCursorRef.current = { segmentIndex: 0, offsetMeters: 0 }
     streetTargetNodeRef.current = null
