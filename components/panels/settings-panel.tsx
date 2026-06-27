@@ -153,6 +153,7 @@ export function SettingsPanel() {
   const {
     settings,
     updateSettings,
+    resetSettings,
     theme,
     toggleTheme,
     zoom,
@@ -175,6 +176,25 @@ export function SettingsPanel() {
       <ScrollArea className="min-h-0 flex-1 overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]">
         <div className="space-y-6 px-4 py-5 pb-[calc(2rem+env(safe-area-inset-bottom))]">
           <DisplayModeSettings />
+
+          <Section title="Сброс">
+            <div className="space-y-3">
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                Возвращает тему, карту, маршрут, маяк, звук, пульсацию, интервалы и остальные параметры к значениям по умолчанию. Локально сохранённые настройки тоже очищаются.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  if (typeof window === "undefined" || window.confirm("Сбросить все локальные настройки?")) {
+                    resetSettings()
+                  }
+                }}
+                className="w-full rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm font-semibold text-destructive transition-colors hover:bg-destructive/15 active:scale-[0.98]"
+              >
+                Сбросить настройки
+              </button>
+            </div>
+          </Section>
 
           <Section title="Интерфейс">
             <SliderRow label="Ширина панели" value={settings.panelWidth} display={`${settings.panelWidth} px`} min={240} max={520} step={20} onChange={(v) => updateSettings({ panelWidth: v })} />

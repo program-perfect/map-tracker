@@ -98,6 +98,62 @@ const DEFAULT_SETTINGS: BeaconSettings = {
   panelWidth: 340,
 }
 
+const DEFAULT_ZOOM = 5
+
+const DEFAULT_LAYERS: Record<MapLayer, boolean> = {
+  traffic: false,
+  transport: false,
+  roads: true,
+  labels: true,
+  buildings: true,
+}
+
+const PERSISTED_STORE_VERSION = 1
+const PERSISTED_STORE_KEY = "map-tracker:settings:v1"
+
+type PersistedStoreState = {
+  version: typeof PERSISTED_STORE_VERSION
+  theme?: ThemeMode
+  layers?: Partial<Record<MapLayer, boolean>>
+  zoom?: number
+  settings?: Partial<BeaconSettings>
+  routePointsText?: string
+}
+
+function readPersistedStoreState(): PersistedStoreState | null {
+  if (typeof window === "undefined") return null
+
+  try {
+    const raw = window.localStorage.getItem(PERSISTED_STORE_KEY)
+    if (!raw) return null
+
+    const parsed = JSON.parse(raw) as Partial<PersistedStoreState>
+    if (parsed.version !== PERSISTED_STORE_VERSION) return null
+
+    return parsed as PersistedStoreState
+  } catch {
+    return null
+  }
+}
+
+function writePersistedStoreState(state: PersistedStoreState) {
+  if (typeof window === "undefined") return
+
+  try {
+    window.localStorage.setItem(PERSISTED_STORE_KEY, JSON.stringify(state))
+  } catch {
+    // localStorage can fail in private mode, old WebViews, or full storage.
+  }
+}
+
+function clearPersistedStoreState() {
+  if (typeof window === "undefined") return
+
+  try {
+    window.localStorage.removeItem(PERSISTED_STORE_KEY)
+  } catch {}
+}
+
 const DEFAULT_SCENARIOS: Scenario[] = [
   {
     id: "sc-kz-spb",
@@ -191,6 +247,7 @@ interface StoreValue {
   requestCenter: (position?: LatLng) => void
   settings: BeaconSettings
   updateSettings: (patch: Partial<BeaconSettings>) => void
+  resetSettings: () => void
   position: LatLng
   speedKmh: number
   street: string
@@ -234,8 +291,8 @@ export function useStore(): StoreValue {
 export function BeaconStoreProvider({ children }: { children: React.ReactNode }) {
   const [theme, setTheme] = useState<ThemeMode>("light")
   const [activePanel, setActivePanel] = useState<PanelId>("map")
-  const [layers, setLayers] = useState<Record<MapLayer, boolean>>({ traffic: false, transport: false, roads: true, labels: true, buildings: true })
-  const [zoom, setZoomState] = useState(5)
+  const [layers, setLayers] = useState<Record<MapLayer, boolean>>(DEFAULT_LAYERS)
+  const [zoom, setZoomState] = useState(DEFAULT_ZOOM)
   const [rotationMode, setRotationMode] = useState<RotationMode>("north")
   const [heading, setHeading] = useState(0)
   const [centerRequest, setCenterRequest] = useState<StoreValue["centerRequest"]>(null)
@@ -254,6 +311,7 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
   const [routePath, setRoutePath] = useState<LatLng[]>([])
   const [routeStatus, setRouteStatus] = useState<RouteBuildStatus>("idle")
   const [routeError, setRouteError] = useState<string | null>(null)
+  const [storageReady, setStorageReady] = useState(false)
 
   const stepCountRef = useRef(0)
   const currentNodeRef = useRef(nearestNode(SPB_ROUTE[0]))
@@ -385,6 +443,31 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
     pushHistory({ position: start, speedKmh: 0, street: ROUTE_STREET_LABEL, event: "route", note: "Точки маршрута применены" })
     evaluateGeofences(start)
   }, [evaluateGeofences, pushHistory, routePointsText])
+
+  const resetSettings = useCallback(() => {
+    clearPersistedStoreState()
+
+    const start = KZ_SPB_ROUTE_POINTS[0]
+
+    setTheme("light")
+    setLayers(DEFAULT_LAYERS)
+    setZoomState(DEFAULT_ZOOM)
+    setSettings(DEFAULT_SETTINGS)
+    setRoutePointsText(DEFAULT_ROUTE_POINTS_TEXT)
+    setRoutePoints(KZ_SPB_ROUTE_POINTS)
+    setRoutePath([])
+    setRouteStatus("idle")
+    setRouteError(null)
+    setPosition(start)
+    setSpeedKmh(0)
+    setStreet(ROUTE_STREET_LABEL)
+    setMoving(false)
+
+    positionRef.current = start
+    routePointsRef.current = KZ_SPB_ROUTE_POINTS
+    routePathRef.current = []
+    routeCursorRef.current = { segmentIndex: 0, offsetMeters: 0 }
+  }, [])
 
   const performRouteMove = useCallback((stepMeters: number, intervalMs: number): LatLng | null => {
     const path = routePathRef.current
@@ -581,6 +664,7 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
     requestCenter,
     settings,
     updateSettings,
+    resetSettings,
     position,
     speedKmh,
     street,
@@ -611,7 +695,7 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
     applyRoutePointsText,
     setRoutePathFromMap,
     setRouteBuildState,
-  }), [theme, toggleTheme, activePanel, layers, toggleLayer, zoom, setZoom, rotationMode, toggleRotationMode, heading, centerRequest, requestCenter, settings, updateSettings, position, speedKmh, street, moving, moveOnce, placeBeacon, objects, history, clearHistory, geofences, addGeofence, updateGeofence, removeGeofence, insideGeofenceIds, scenarios, addScenario, updateScenario, removeScenario, addScenarioStep, updateScenarioStep, removeScenarioStep, routePointsText, routePoints, routePath, routeStatus, routeError, updateRoutePointsText, applyRoutePointsText, setRoutePathFromMap, setRouteBuildState])
+  }), [theme, toggleTheme, activePanel, layers, toggleLayer, zoom, setZoom, rotationMode, toggleRotationMode, heading, centerRequest, requestCenter, settings, updateSettings, resetSettings, position, speedKmh, street, moving, moveOnce, placeBeacon, objects, history, clearHistory, geofences, addGeofence, updateGeofence, removeGeofence, insideGeofenceIds, scenarios, addScenario, updateScenario, removeScenario, addScenarioStep, updateScenarioStep, removeScenarioStep, routePointsText, routePoints, routePath, routeStatus, routeError, updateRoutePointsText, applyRoutePointsText, setRoutePathFromMap, setRouteBuildState])
 
   return <StoreContext value={value}>{children}</StoreContext>
 }
