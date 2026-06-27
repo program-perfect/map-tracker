@@ -174,6 +174,8 @@ export function YandexMap() {
   const routeLineRef = useRef<any>(null)
   const destinationRef = useRef<any>(null)
   const routeEditorObjectsRef = useRef<any[]>([])
+  const nativeContextMenuCleanupRef = useRef<(() => void) | null>(null)
+  const lastRouteEditorPointAtRef = useRef(0)
   const [markerHost, setMarkerHost] = useState<HTMLElement | null>(null)
   const [mapRotationDeg, setMapRotationDeg] = useState(0)
   const mapRotationRef = useRef(0)
@@ -300,11 +302,77 @@ export function YandexMap() {
           const z = Math.round(map.getZoom())
           if (z !== zoomRef.current) setZoomRef.current(z)
         })
+        const addEditorPointSafely = (point: LatLng) => {
+          const now = Date.now()
+          if (now - lastRouteEditorPointAtRef.current < 120) return
+
+          lastRouteEditorPointAtRef.current = now
+          addRouteEditorPointRef.current(point)
+        }
+
+        const readMapEventPoint = (e: any): LatLng | null => {
+          try {
+            const coords: [number, number] | undefined = e.get("coords")
+            if (!coords || typeof coords[0] !== "number" || typeof coords[1] !== "number") return null
+            return [coords[0], coords[1]]
+          } catch {
+            return null
+          }
+        }
+
+        const handleEditorMapPoint = (e: any) => {
+          if (cancelled || !routeEditorActiveRef.current) return
+
+          try { e.preventDefault?.() } catch {}
+          try { e.stopPropagation?.() } catch {}
+
+          const point = readMapEventPoint(e)
+          if (!point) return
+
+          addEditorPointSafely(point)
+        }
+
         map.events.add("click", (e: any) => {
           if (cancelled) return
-          const coords: [number, number] = e.get("coords")
-          placeBeaconRef.current([coords[0], coords[1]])
+          const point = readMapEventPoint(e)
+          if (!point) return
+
+          if (routeEditorActiveRef.current) {
+            addEditorPointSafely(point)
+            return
+          }
+
+          placeBeaconRef.current(point)
         })
+
+        map.events.add("contextmenu", handleEditorMapPoint)
+        map.events.add("rightclick", handleEditorMapPoint)
+
+        const nativeContextTarget = rotationLayerRef.current ?? containerRef.current
+        const handleNativeContextMenu = (event: MouseEvent) => {
+          if (!routeEditorActiveRef.current) return
+
+          event.preventDefault()
+          event.stopPropagation()
+
+          const currentMap = mapRef.current
+          if (!currentMap) return
+
+          try {
+            const projection = currentMap.options.get("projection")
+            const globalPixels = currentMap.converter.pageToGlobal([event.pageX, event.pageY])
+            const coords = projection.fromGlobalPixels(globalPixels, currentMap.getZoom())
+
+            if (Array.isArray(coords) && typeof coords[0] === "number" && typeof coords[1] === "number") {
+              addEditorPointSafely([coords[0], coords[1]])
+            }
+          } catch {}
+        }
+
+        nativeContextTarget?.addEventListener("contextmenu", handleNativeContextMenu, { capture: true })
+        nativeContextMenuCleanupRef.current = () => {
+          nativeContextTarget?.removeEventListener("contextmenu", handleNativeContextMenu, { capture: true } as AddEventListenerOptions)
+        }
         const Layout = ymaps.templateLayoutFactory.createClass('<div id="beacon-layout-host" style="position:relative;width:0;height:0;overflow:visible;"></div>', {
           build() {
             Layout.superclass.build.call(this)
@@ -324,6 +392,9 @@ export function YandexMap() {
       .catch(() => { if (!cancelled) setStatus("error") })
     return () => {
       cancelled = true
+      nativeContextMenuCleanupRef.current?.()
+      nativeContextMenuCleanupRef.current = null
+
       if (mapRef.current) {
         try { mapRef.current.destroy() } catch {}
         mapRef.current = null
@@ -374,64 +445,80 @@ export function YandexMap() {
     if (!map || !ymaps || status !== "ready") return
 
     const clearRoute = () => {
-      if (routeLineRef.current) { try { map.geoObjects.remove(routeLineRef.current) } catch {}; routeLineRef.current = null }
-      if (destinationRef.current) { try { map.geoObjects.remove(destinationRef.current) } catch {}; destinationRef.current = null }
+      if (routeLineRef.current) {
+        try { map.geoObjects.remove(routeLineRef.current) } catch {}
+        routeLineRef.current = null
+      }
+
+      if (destinationRef.current) {
+        try { map.geoObjects.remove(destinationRef.current) } catch {}
+        destinationRef.current = null
+      }
     }
 
     clearRoute()
+
     if (!settings.routeMode) {
       setRouteBuildStateRef.current("idle")
       return clearRoute
     }
+
     if (routePoints.length < 2) {
       setRouteBuildStateRef.current("error", "Need at least two route points")
       return clearRoute
     }
 
-    let cancelled = false
-    let routeTimer: number | null = null
-    let idleCallbackId: number | null = null
-    setRouteBuildStateRef.current("building")
+    try {
+      setRouteBuildStateRef.current("building")
 
-    const buildRoute = () => {
-      if (cancelled) return
-      void buildRoadRoute(ymaps, routePoints)
-        .then((coords) => {
-          if (cancelled) return
-          if (coords.length < 2) {
-            setRouteBuildStateRef.current("error", "No route geometry")
-            return
-          }
-          const routeLine = new ymaps.Polyline(coords, { hintContent: "KZ SPB" }, { strokeColor: ROUTE_COLOR, strokeOpacity: 0.96, strokeWidth: 4, strokeStyle: "solid" })
-          routeLineRef.current = routeLine
-          map.geoObjects.add(routeLine)
-          const destination = routePoints[routePoints.length - 1]
-          const destinationMarker = new ymaps.Placemark(destination, { hintContent: "SPB" }, { preset: "islands#redDotIcon", iconColor: ROUTE_COLOR })
-          destinationRef.current = destinationMarker
-          map.geoObjects.add(destinationMarker)
-          setRoutePathFromMapRef.current(coords)
-          try {
-            const bounds = routeLine.geometry.getBounds?.()
-            if (bounds) map.setBounds(bounds, { checkZoomRange: true, zoomMargin: 64, duration: 0 })
-          } catch {}
-        })
-        .catch(() => {
-          if (!cancelled) setRouteBuildStateRef.current("error", "No route geometry")
-        })
+      const line = new ymaps.Polyline(
+        routePoints,
+        { hintContent: "Маршрут" },
+        {
+          strokeColor: ROUTE_COLOR,
+          strokeOpacity: 0.96,
+          strokeWidth: 4,
+          strokeStyle: "solid",
+        }
+      )
+
+      routeLineRef.current = line
+      map.geoObjects.add(line)
+
+      const destination = routePoints[routePoints.length - 1]
+      const finish = new ymaps.Circle(
+        [destination, 32],
+        { hintContent: "Финиш маршрута" },
+        {
+          fillColor: ROUTE_COLOR,
+          fillOpacity: 0.32,
+          strokeColor: ROUTE_COLOR,
+          strokeWidth: 2,
+          strokeOpacity: 0.92,
+        }
+      )
+
+      destinationRef.current = finish
+      map.geoObjects.add(finish)
+
+      setRoutePathFromMapRef.current(routePoints)
+      setRouteBuildStateRef.current("ready", null)
+
+      try {
+        const bounds = line.geometry.getBounds?.()
+        if (bounds) {
+          map.setBounds(bounds, {
+            checkZoomRange: true,
+            zoomMargin: 64,
+            duration: 0,
+          })
+        }
+      } catch {}
+    } catch {
+      setRouteBuildStateRef.current("error", "Route render failed")
     }
 
-    if ("requestIdleCallback" in window) {
-      idleCallbackId = (window as any).requestIdleCallback(buildRoute, { timeout: STARTUP_ROUTE_DELAY_MS })
-    } else {
-      routeTimer = window.setTimeout(buildRoute, STARTUP_ROUTE_DELAY_MS)
-    }
-
-    return () => {
-      cancelled = true
-      if (idleCallbackId != null && "cancelIdleCallback" in window) (window as any).cancelIdleCallback(idleCallbackId)
-      if (routeTimer != null) window.clearTimeout(routeTimer)
-      clearRoute()
-    }
+    return clearRoute
   }, [routePoints, settings.routeMode, status])
 
   useEffect(() => {
@@ -476,19 +563,30 @@ export function YandexMap() {
     }
 
     routeEditorPoints.forEach((point, index) => {
-      const placemark = new ymaps.Placemark(
-        point,
+      const isStart = index === 0
+      const isFinish = index === routeEditorPoints.length - 1 && index > 0
+      const color = isStart ? "#a855f7" : isFinish ? ROUTE_COLOR : "#2563eb"
+
+      const circle = new ymaps.Circle(
+        [point, isStart || isFinish ? 34 : 24],
         {
-          iconContent: String(index + 1),
-          hintContent: index === 0 ? "Старт маршрута" : `Точка маршрута ${index + 1}`,
+          hintContent: isStart
+            ? "Старт маршрута"
+            : isFinish
+              ? "Финиш маршрута"
+              : `Точка маршрута ${index + 1}`,
         },
         {
-          preset: index === 0 ? "islands#violetStretchyIcon" : "islands#blueStretchyIcon",
+          fillColor: color,
+          fillOpacity: 0.38,
+          strokeColor: color,
+          strokeWidth: 2,
+          strokeOpacity: 0.95,
         }
       )
 
-      objects.push(placemark)
-      map.geoObjects.add(placemark)
+      objects.push(circle)
+      map.geoObjects.add(circle)
     })
 
     routeEditorObjectsRef.current = objects

@@ -88,6 +88,17 @@ export interface BeaconSettings {
   alarmSound: AlarmSoundId
   continuousAlarm: boolean
   mapHue: number
+  mapDarkBrightness: number
+  mapDarkContrast: number
+  mapDarkSaturation: number
+  uiThemePreset: string
+  customThemePrimary: string
+  customThemeSecondary: string
+  customThemeAccent: string
+  uiScale: number
+  uiDensity: number
+  uiRadius: number
+  uiBlur: number
   beaconColor: string
   markerSize: number
   panelWidth: number

@@ -65,8 +65,60 @@ const LIGHT_DEFAULT_BEACON_COLOR = "#ef4444"
 const MIN_MARKER_SIZE = 30
 const DEFAULT_MARKER_SIZE = 30
 const MAX_MARKER_SIZE = 64
+
+const UI_THEME_PRESETS: Record<string, { primary: string; secondary: string; accent: string; primaryForeground: string }> = {
+  violet: {
+    primary: "#7c3aed",
+    secondary: "#a855f7",
+    accent: "color-mix(in oklch, #7c3aed 14%, var(--background))",
+    primaryForeground: "#ffffff",
+  },
+  cobalt: {
+    primary: "#2563eb",
+    secondary: "#06b6d4",
+    accent: "color-mix(in oklch, #2563eb 14%, var(--background))",
+    primaryForeground: "#ffffff",
+  },
+  emerald: {
+    primary: "#059669",
+    secondary: "#22c55e",
+    accent: "color-mix(in oklch, #059669 14%, var(--background))",
+    primaryForeground: "#ffffff",
+  },
+  amber: {
+    primary: "#d97706",
+    secondary: "#f59e0b",
+    accent: "color-mix(in oklch, #d97706 16%, var(--background))",
+    primaryForeground: "#111827",
+  },
+  rose: {
+    primary: "#e11d48",
+    secondary: "#f97316",
+    accent: "color-mix(in oklch, #e11d48 14%, var(--background))",
+    primaryForeground: "#ffffff",
+  },
+  cyan: {
+    primary: "#0891b2",
+    secondary: "#14b8a6",
+    accent: "color-mix(in oklch, #0891b2 14%, var(--background))",
+    primaryForeground: "#ffffff",
+  },
+  graphite: {
+    primary: "#475569",
+    secondary: "#111827",
+    accent: "color-mix(in oklch, #475569 16%, var(--background))",
+    primaryForeground: "#ffffff",
+  },
+  neon: {
+    primary: "#8b5cf6",
+    secondary: "#ec4899",
+    accent: "color-mix(in oklch, #8b5cf6 18%, var(--background))",
+    primaryForeground: "#ffffff",
+  },
+}
 const ROUTE_STREET_LABEL = "Маршрут Казахстан → Санкт-Петербург"
 const PERSISTED_BEACON_POSITION_KEY = "map-tracker:beacon-position:v1"
+const PERSISTED_ROUTES_KEY = "map-tracker:saved-routes:v1"
 const ROAD_SNAP_MAX_METERS = 2500
 const USER_LOCATION_STREET_LABEL = "Текущее местоположение"
 const INITIAL_GEOLOCATION_DONE_KEY = "map-tracker:initial-geolocation-done"
@@ -74,6 +126,38 @@ const INITIAL_GEOLOCATION_DONE_KEY = "map-tracker:initial-geolocation-done"
 type RouteCursor = {
   segmentIndex: number
   offsetMeters: number
+}
+
+type SavedRoute = {
+  id: string
+  name: string
+  points: LatLng[]
+  sourcePoints?: LatLng[]
+  interpolationEnabled?: boolean
+  interpolationFactor?: number
+  sourceStepMeters?: number
+  sourceIntervalMs?: number
+  generatedStepMeters?: number
+  generatedIntervalMs?: number
+  stepMeters: number
+  intervalMs: number
+  routeLoop: boolean
+  createdAt: number
+  updatedAt: number
+}
+
+type RouteEditorSaveOptions = {
+  name?: string
+  stepMeters?: number
+  intervalMs?: number
+  autoMove?: boolean
+  routeLoop?: boolean
+  interpolationEnabled?: boolean
+  interpolationFactor?: number
+  sourceStepMeters?: number
+  sourceIntervalMs?: number
+  generatedStepMeters?: number
+  generatedIntervalMs?: number
 }
 
 const DEFAULT_SETTINGS: BeaconSettings = {
@@ -97,10 +181,27 @@ const DEFAULT_SETTINGS: BeaconSettings = {
   alarmSound: "warning",
   continuousAlarm: true,
   mapHue: 40,
+  mapDarkBrightness: 88,
+  mapDarkContrast: 100,
+  mapDarkSaturation: 130,
+  uiThemePreset: "violet",
+  customThemePrimary: "#7c3aed",
+  customThemeSecondary: "#a855f7",
+  customThemeAccent: "#ede9fe",
+  uiScale: 100,
+  uiDensity: 100,
+  uiRadius: 100,
+  uiBlur: 24,
   beaconColor: LIGHT_DEFAULT_BEACON_COLOR,
   markerSize: DEFAULT_MARKER_SIZE,
   panelWidth: 340,
   mobileMapStripVisible: false,
+}
+
+function clampSettingNumber(value: unknown, min: number, max: number, fallback: number) {
+  const number = typeof value === "number" ? value : Number(value)
+  if (!Number.isFinite(number)) return fallback
+  return Math.max(min, Math.min(max, Math.round(number)))
 }
 
 const DEFAULT_ZOOM = 5
@@ -285,6 +386,154 @@ const INITIAL_GEOFENCES: Geofence[] = [
   { id: uid(), name: "Площадь Восстания", center: [59.9311, 30.3609], radius: 600, active: false, color: "#f59e0b", alertOnEnter: true, alertOnExit: false },
 ]
 
+const DEFAULT_SAVED_ROUTES: SavedRoute[] = [
+  {
+    id: "default-kz-spb",
+    name: "Казахстан → Санкт-Петербург",
+    points: KZ_SPB_ROUTE_POINTS,
+    sourcePoints: KZ_SPB_ROUTE_POINTS,
+    interpolationEnabled: false,
+    interpolationFactor: 0,
+    sourceStepMeters: DEFAULT_SETTINGS.stepMeters,
+    sourceIntervalMs: DEFAULT_SETTINGS.intervalMs,
+    generatedStepMeters: DEFAULT_SETTINGS.stepMeters,
+    generatedIntervalMs: DEFAULT_SETTINGS.intervalMs,
+    stepMeters: DEFAULT_SETTINGS.stepMeters,
+    intervalMs: DEFAULT_SETTINGS.intervalMs,
+    routeLoop: DEFAULT_SETTINGS.routeLoop,
+    createdAt: 0,
+    updatedAt: 0,
+  },
+]
+
+function clampRouteNumber(value: unknown, min: number, max: number, fallback: number) {
+  const number = typeof value === "number" ? value : Number(value)
+  if (!Number.isFinite(number)) return fallback
+  return Math.max(min, Math.min(max, Math.round(number)))
+}
+
+function interpolateRoutePoints(points: LatLng[], factor: number) {
+  const safeFactor = clampRouteNumber(factor, 0, 25, 0)
+  if (points.length < 2 || safeFactor <= 0) return points
+
+  const next: LatLng[] = []
+
+  for (let i = 0; i < points.length - 1; i += 1) {
+    const from = points[i]
+    const to = points[i + 1]
+
+    next.push(from)
+
+    for (let j = 1; j <= safeFactor; j += 1) {
+      const t = j / (safeFactor + 1)
+      next.push([
+        from[0] + (to[0] - from[0]) * t,
+        from[1] + (to[1] - from[1]) * t,
+      ])
+    }
+  }
+
+  next.push(points[points.length - 1])
+  return next
+}
+
+function buildSavedRoutePoints(sourcePoints: LatLng[], interpolationEnabled?: boolean, interpolationFactor?: number) {
+  return interpolationEnabled
+    ? interpolateRoutePoints(sourcePoints, interpolationFactor ?? 0)
+    : sourcePoints
+}
+
+function formatRoutePoints(points: LatLng[]) {
+  return points.map((point) => `${point[0].toFixed(6)}, ${point[1].toFixed(6)}`).join("\n")
+}
+
+function normalizeSavedRoute(value: unknown): SavedRoute | null {
+  if (!value || typeof value !== "object") return null
+
+  const route = value as Partial<SavedRoute>
+  const points = Array.isArray(route.points)
+    ? route.points.filter((point): point is LatLng => (
+        Array.isArray(point) &&
+        point.length === 2 &&
+        typeof point[0] === "number" &&
+        typeof point[1] === "number" &&
+        Number.isFinite(point[0]) &&
+        Number.isFinite(point[1]) &&
+        Math.abs(point[0]) <= 90 &&
+        Math.abs(point[1]) <= 180
+      ))
+    : []
+
+  if (!route.id || typeof route.id !== "string") return null
+  if (points.length < 2) return null
+
+  const now = Date.now()
+
+  const sourcePoints = Array.isArray(route.sourcePoints)
+    ? route.sourcePoints.filter((point): point is LatLng => (
+        Array.isArray(point) &&
+        point.length === 2 &&
+        typeof point[0] === "number" &&
+        typeof point[1] === "number" &&
+        Number.isFinite(point[0]) &&
+        Number.isFinite(point[1]) &&
+        Math.abs(point[0]) <= 90 &&
+        Math.abs(point[1]) <= 180
+      ))
+    : points
+
+  const interpolationEnabled = Boolean(route.interpolationEnabled)
+  const interpolationFactor = clampRouteNumber(route.interpolationFactor, 0, 25, 0)
+  const sourceStepMeters = clampRouteNumber(route.sourceStepMeters ?? route.stepMeters, 1, 30_000, DEFAULT_SETTINGS.stepMeters)
+  const sourceIntervalMs = clampRouteNumber(route.sourceIntervalMs ?? route.intervalMs, MIN_INTERVAL_MS, MAX_INTERVAL_MS, DEFAULT_SETTINGS.intervalMs)
+  const generatedStepMeters = clampRouteNumber(route.generatedStepMeters ?? route.stepMeters, 1, 30_000, sourceStepMeters)
+  const generatedIntervalMs = clampRouteNumber(route.generatedIntervalMs ?? route.intervalMs, MIN_INTERVAL_MS, MAX_INTERVAL_MS, sourceIntervalMs)
+  const builtPoints = buildSavedRoutePoints(sourcePoints.length >= 2 ? sourcePoints : points, interpolationEnabled, interpolationFactor)
+
+  return {
+    id: route.id,
+    name: typeof route.name === "string" && route.name.trim() ? route.name.trim() : "Маршрут",
+    points: builtPoints,
+    sourcePoints: sourcePoints.length >= 2 ? sourcePoints : points,
+    interpolationEnabled,
+    interpolationFactor,
+    sourceStepMeters,
+    sourceIntervalMs,
+    generatedStepMeters,
+    generatedIntervalMs,
+    stepMeters: interpolationEnabled ? generatedStepMeters : sourceStepMeters,
+    intervalMs: interpolationEnabled ? generatedIntervalMs : sourceIntervalMs,
+    routeLoop: Boolean(route.routeLoop),
+    createdAt: typeof route.createdAt === "number" ? route.createdAt : now,
+    updatedAt: typeof route.updatedAt === "number" ? route.updatedAt : now,
+  }
+}
+
+function readPersistedSavedRoutes(): SavedRoute[] {
+  if (typeof window === "undefined") return DEFAULT_SAVED_ROUTES
+
+  try {
+    const raw = window.localStorage.getItem(PERSISTED_ROUTES_KEY)
+    if (!raw) return DEFAULT_SAVED_ROUTES
+
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return DEFAULT_SAVED_ROUTES
+
+    const routes = parsed.map(normalizeSavedRoute).filter((route): route is SavedRoute => route != null)
+    return routes.length > 0 ? routes : DEFAULT_SAVED_ROUTES
+  } catch {
+    return DEFAULT_SAVED_ROUTES
+  }
+}
+
+function writePersistedSavedRoutes(routes: SavedRoute[]) {
+  if (typeof window === "undefined") return
+
+  try {
+    window.localStorage.setItem(PERSISTED_ROUTES_KEY, JSON.stringify(routes))
+  } catch {}
+}
+
 function parseRoutePoints(text: string): LatLng[] {
   return text
     .split(/\n+/)
@@ -348,12 +597,18 @@ interface StoreValue {
   routeError: string | null
   routeEditorActive: boolean
   routeEditorPoints: LatLng[]
-  startRouteEditor: () => void
+  routeEditorEditingId: string | null
+  savedRoutes: SavedRoute[]
+  activeRouteId: string | null
+  startRouteEditor: (points?: LatLng[], routeId?: string | null) => void
   cancelRouteEditor: () => void
-  saveRouteEditor: () => void
+  saveRouteEditor: (options?: RouteEditorSaveOptions) => void
   addRouteEditorPoint: (point: LatLng) => void
   undoRouteEditorPoint: () => void
   clearRouteEditorPoints: () => void
+  applySavedRoute: (routeId: string, autoMove?: boolean) => void
+  renameSavedRoute: (routeId: string, name: string) => void
+  deleteSavedRoute: (routeId: string) => void
   updateRoutePointsText: (text: string) => void
   applyRoutePointsText: () => void
   setRoutePathFromMap: (path: LatLng[]) => void
@@ -393,6 +648,9 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
   const [routeError, setRouteError] = useState<string | null>(null)
   const [routeEditorActive, setRouteEditorActive] = useState(false)
   const [routeEditorPoints, setRouteEditorPoints] = useState<LatLng[]>([])
+  const [routeEditorEditingId, setRouteEditorEditingId] = useState<string | null>(null)
+  const [savedRoutes, setSavedRoutes] = useState<SavedRoute[]>(DEFAULT_SAVED_ROUTES)
+  const [activeRouteId, setActiveRouteId] = useState<string | null>(DEFAULT_SAVED_ROUTES[0]?.id ?? null)
   const [storageReady, setStorageReady] = useState(false)
 
   const stepCountRef = useRef(0)
@@ -407,12 +665,14 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
   const geofencesRef = useRef(geofences)
   const routePathRef = useRef(routePath)
   const routePointsRef = useRef(routePoints)
+  const savedRoutesRef = useRef(savedRoutes)
   settingsRef.current = settings
   positionRef.current = position
   insideRef.current = insideGeofenceIds
   geofencesRef.current = geofences
   routePathRef.current = routePath
   routePointsRef.current = routePoints
+  savedRoutesRef.current = savedRoutes
 
   // POSITION_PERSISTENCE_BOOTSTRAP
   useEffect(() => {
@@ -493,12 +753,73 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
 
   useEffect(() => {
     const root = document.documentElement
+
+    const themePresetId = settings.uiThemePreset ?? "violet"
+    const preset = UI_THEME_PRESETS[themePresetId] ?? UI_THEME_PRESETS.violet
+    const primary = themePresetId === "custom" ? settings.customThemePrimary || preset.primary : preset.primary
+    const secondary = themePresetId === "custom" ? settings.customThemeSecondary || preset.secondary : preset.secondary
+    const accent = themePresetId === "custom" ? settings.customThemeAccent || preset.accent : preset.accent
+    const primaryForeground = preset.primaryForeground
+
+    const uiScale = clampSettingNumber(settings.uiScale, 80, 130, 100) / 100
+    const uiDensity = clampSettingNumber(settings.uiDensity, 80, 135, 100) / 100
+    const uiRadius = clampSettingNumber(settings.uiRadius, 40, 200, 100) / 100
+    const uiBlur = clampSettingNumber(settings.uiBlur, 0, 40, 24)
+
+    const mapDarkBrightness = clampSettingNumber(settings.mapDarkBrightness, 55, 130, 88) / 100
+    const mapDarkContrast = clampSettingNumber(settings.mapDarkContrast, 70, 150, 100) / 100
+    const mapDarkSaturation = clampSettingNumber(settings.mapDarkSaturation, 50, 180, 130) / 100
+
+    root.dataset.uiTheme = themePresetId
+    root.style.setProperty("--primary", primary)
+    root.style.setProperty("--primary-foreground", primaryForeground)
+    root.style.setProperty("--ring", primary)
+    root.style.setProperty("--accent", accent)
+    root.style.setProperty("--accent-foreground", "var(--foreground)")
+    root.style.setProperty("--secondary", `color-mix(in oklch, ${primary} 10%, var(--background))`)
+    root.style.setProperty("--secondary-foreground", "var(--foreground)")
+    root.style.setProperty("--sidebar-primary", primary)
+    root.style.setProperty("--sidebar-primary-foreground", primaryForeground)
+    root.style.setProperty("--sidebar-accent", accent)
+    root.style.setProperty("--chart-1", primary)
+    root.style.setProperty("--chart-4", secondary)
+    root.style.setProperty("--grad-primary", `linear-gradient(135deg, ${primary}, ${secondary})`)
+    root.style.setProperty("--glow-primary", `0 0 24px -4px color-mix(in oklch, ${primary} 52%, transparent), 0 0 48px -12px color-mix(in oklch, ${secondary} 34%, transparent)`)
+
+    root.style.setProperty("--ui-scale", String(uiScale))
+    root.style.setProperty("--ui-density", String(uiDensity))
+    root.style.setProperty("--ui-radius-scale", String(uiRadius))
+    root.style.setProperty("--radius", `${0.55 * uiRadius}rem`)
+    root.style.setProperty("--glass-blur", `${uiBlur}px`)
+    root.style.setProperty("--glass-strong-blur", `${Math.max(0, uiBlur + 8)}px`)
+
+    root.style.setProperty("--map-dark-brightness", String(mapDarkBrightness))
+    root.style.setProperty("--map-dark-contrast", String(mapDarkContrast))
+    root.style.setProperty("--map-dark-saturation", String(mapDarkSaturation))
+
     root.style.setProperty("--beacon-pulse-duration", `${settings.pulseDurationMs}ms`)
     root.style.setProperty("--beacon-pulse-scale", String(settings.pulseScale))
     root.style.setProperty("--map-hue", `${settings.mapHue}deg`)
     root.style.setProperty("--beacon-user-color", settings.beaconColor)
     root.style.setProperty("--beacon-marker-size", `${settings.markerSize ?? DEFAULT_MARKER_SIZE}px`)
-  }, [settings.pulseDurationMs, settings.pulseScale, settings.mapHue, settings.beaconColor, settings.markerSize])
+  }, [
+    settings.pulseDurationMs,
+    settings.pulseScale,
+    settings.mapHue,
+    settings.mapDarkBrightness,
+    settings.mapDarkContrast,
+    settings.mapDarkSaturation,
+    settings.beaconColor,
+    settings.markerSize,
+    settings.uiThemePreset,
+    settings.customThemePrimary,
+    settings.customThemeSecondary,
+    settings.customThemeAccent,
+    settings.uiScale,
+    settings.uiDensity,
+    settings.uiRadius,
+    settings.uiBlur,
+  ])
 
   const toggleTheme = useCallback(() => setTheme((t) => (t === "dark" ? "light" : "dark")), [])
   const toggleLayer = useCallback((l: MapLayer) => setLayers((prev) => ({ ...prev, [l]: !prev[l] })), [])
@@ -601,7 +922,9 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
     evaluateGeofences(start)
   }, [evaluateGeofences, pushHistory, routePointsText])
 
-  const startRouteEditor = useCallback(() => {
+  const startRouteEditor = useCallback((points?: LatLng[], routeId?: string | null) => {
+    const initialPoints = Array.isArray(points) ? points.filter(Boolean) : []
+
     setSettings((prev) => ({
       ...prev,
       autoMove: false,
@@ -610,13 +933,27 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
     setMoving(false)
     setRouteError(null)
     setRouteStatus("idle")
-    setRouteEditorPoints([])
+    setRouteEditorPoints(initialPoints)
+    setRouteEditorEditingId(routeId ?? null)
     setRouteEditorActive(true)
+
+    const last = initialPoints[initialPoints.length - 1]
+    if (last) {
+      setPosition(last)
+      positionRef.current = last
+      currentNodeRef.current = nearestNode(last)
+      streetTargetNodeRef.current = null
+      routeCursorRef.current = { segmentIndex: 0, offsetMeters: 0 }
+      setSpeedKmh(0)
+      setStreet("Редактор маршрута")
+      setCenterRequest({ position: last, nonce: Date.now() })
+    }
   }, [])
 
   const cancelRouteEditor = useCallback(() => {
     setRouteEditorActive(false)
     setRouteEditorPoints([])
+    setRouteEditorEditingId(null)
     setRouteError(null)
     setRouteStatus(settingsRef.current.routeMode ? routeStatus : "idle")
   }, [routeStatus])
@@ -658,22 +995,15 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
     setRouteStatus("idle")
   }, [])
 
-  const saveRouteEditor = useCallback(() => {
-    const points = routeEditorPoints
+  const applySavedRoute = useCallback((routeId: string, autoMove = true) => {
+    const route = savedRoutesRef.current.find((item) => item.id === routeId)
+    if (!route || route.points.length < 2) return
 
-    if (points.length < 2) {
-      setRouteStatus("error")
-      setRouteError("Для маршрута нужно минимум две точки")
-      return
-    }
-
-    const text = points.map((point) => `${point[0].toFixed(6)}, ${point[1].toFixed(6)}`).join("\n")
+    const points = route.points
     const start = points[0]
 
-    setRouteEditorActive(false)
-    setRouteEditorPoints([])
-
-    setRoutePointsText(text)
+    setActiveRouteId(route.id)
+    setRoutePointsText(formatRoutePoints(points))
     setRoutePoints(points)
     routePointsRef.current = points
 
@@ -687,6 +1017,11 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
     currentNodeRef.current = nearestNode(start)
     setSpeedKmh(0)
     setStreet(ROUTE_STREET_LABEL)
+    setCenterRequest({ position: start, nonce: Date.now() })
+
+    if (typeof writePersistedBeaconPosition === "function") {
+      writePersistedBeaconPosition(start)
+    }
 
     setRouteStatus("building")
     setRouteError(null)
@@ -695,8 +1030,171 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
       ...prev,
       routeMode: true,
       followRoute: true,
-      autoMove: false,
+      autoMove,
+      routeLoop: route.routeLoop,
       scenarioEnabled: false,
+      stepMeters: route.stepMeters,
+      intervalMs: route.intervalMs,
+    }))
+    setMoving(autoMove)
+
+    pushHistory({
+      position: start,
+      speedKmh: 0,
+      street: ROUTE_STREET_LABEL,
+      event: "route",
+      note: `Выбран маршрут «${route.name}»`,
+    })
+
+    evaluateGeofences(start)
+  }, [evaluateGeofences, pushHistory])
+
+  const renameSavedRoute = useCallback((routeId: string, name: string) => {
+    const safeName = name.trim() || "Маршрут"
+
+    setSavedRoutes((prev) => {
+      const next = prev.map((route) =>
+        route.id === routeId
+          ? { ...route, name: safeName, updatedAt: Date.now() }
+          : route
+      )
+
+      writePersistedSavedRoutes(next)
+      savedRoutesRef.current = next
+      return next
+    })
+  }, [])
+
+  const deleteSavedRoute = useCallback((routeId: string) => {
+    setSavedRoutes((prev) => {
+      const next = prev.filter((route) => route.id !== routeId)
+      const safeNext = next.length > 0 ? next : DEFAULT_SAVED_ROUTES
+      writePersistedSavedRoutes(safeNext)
+      savedRoutesRef.current = safeNext
+      return safeNext
+    })
+
+    setActiveRouteId((prev) => prev === routeId ? null : prev)
+    setRouteEditorEditingId((prev) => prev === routeId ? null : prev)
+  }, [])
+
+  const saveRouteEditor = useCallback((options?: RouteEditorSaveOptions) => {
+    const points = routeEditorPoints
+
+    if (points.length < 2) {
+      setRouteStatus("error")
+      setRouteError("Для маршрута нужно минимум две точки")
+      return
+    }
+
+    const now = Date.now()
+    const existing = routeEditorEditingId
+      ? savedRoutesRef.current.find((route) => route.id === routeEditorEditingId)
+      : null
+
+    const interpolationEnabled = options?.interpolationEnabled ?? existing?.interpolationEnabled ?? false
+    const interpolationFactor = clampRouteNumber(options?.interpolationFactor ?? existing?.interpolationFactor ?? 0, 0, 25, 0)
+
+    const sourceStepMeters = clampRouteNumber(
+      options?.sourceStepMeters ?? options?.stepMeters ?? existing?.sourceStepMeters ?? existing?.stepMeters ?? settingsRef.current.stepMeters ?? 5,
+      1,
+      30_000,
+      5
+    )
+    const sourceIntervalMs = clampRouteNumber(
+      options?.sourceIntervalMs ?? options?.intervalMs ?? existing?.sourceIntervalMs ?? existing?.intervalMs ?? settingsRef.current.intervalMs ?? DEFAULT_INTERVAL_MS,
+      MIN_INTERVAL_MS,
+      MAX_INTERVAL_MS,
+      DEFAULT_INTERVAL_MS
+    )
+    const generatedStepMeters = clampRouteNumber(
+      options?.generatedStepMeters ?? existing?.generatedStepMeters ?? sourceStepMeters,
+      1,
+      30_000,
+      sourceStepMeters
+    )
+    const generatedIntervalMs = clampRouteNumber(
+      options?.generatedIntervalMs ?? existing?.generatedIntervalMs ?? sourceIntervalMs,
+      MIN_INTERVAL_MS,
+      MAX_INTERVAL_MS,
+      sourceIntervalMs
+    )
+
+    const safeStepMeters = interpolationEnabled ? generatedStepMeters : sourceStepMeters
+    const safeIntervalMs = interpolationEnabled ? generatedIntervalMs : sourceIntervalMs
+    const routeLoop = options?.routeLoop ?? existing?.routeLoop ?? settingsRef.current.routeLoop ?? false
+    const routeName = (options?.name ?? existing?.name ?? `Маршрут ${savedRoutesRef.current.length + 1}`).trim() || "Маршрут"
+    const routeId = existing?.id ?? uid()
+    const sourcePoints = points
+    const builtPoints = buildSavedRoutePoints(sourcePoints, interpolationEnabled, interpolationFactor)
+    const start = builtPoints[0]
+
+    const savedRoute: SavedRoute = {
+      id: routeId,
+      name: routeName,
+      points: builtPoints,
+      sourcePoints,
+      interpolationEnabled,
+      interpolationFactor,
+      sourceStepMeters,
+      sourceIntervalMs,
+      generatedStepMeters,
+      generatedIntervalMs,
+      stepMeters: safeStepMeters,
+      intervalMs: safeIntervalMs,
+      routeLoop,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    }
+
+    setSavedRoutes((prev) => {
+      const exists = prev.some((route) => route.id === routeId)
+      const next = exists
+        ? prev.map((route) => route.id === routeId ? savedRoute : route)
+        : [savedRoute, ...prev]
+
+      writePersistedSavedRoutes(next)
+      savedRoutesRef.current = next
+      return next
+    })
+
+    setActiveRouteId(routeId)
+    setRouteEditorActive(false)
+    setRouteEditorPoints([])
+    setRouteEditorEditingId(null)
+
+    setRoutePointsText(formatRoutePoints(builtPoints))
+    setRoutePoints(builtPoints)
+    routePointsRef.current = builtPoints
+
+    setRoutePath([])
+    routePathRef.current = []
+    routeCursorRef.current = { segmentIndex: 0, offsetMeters: 0 }
+    streetTargetNodeRef.current = null
+
+    setPosition(start)
+    positionRef.current = start
+    currentNodeRef.current = nearestNode(start)
+    setSpeedKmh(0)
+    setStreet(ROUTE_STREET_LABEL)
+    setCenterRequest({ position: start, nonce: Date.now() })
+
+    if (typeof writePersistedBeaconPosition === "function") {
+      writePersistedBeaconPosition(start)
+    }
+
+    setRouteStatus("building")
+    setRouteError(null)
+
+    setSettings((prev) => ({
+      ...prev,
+      routeMode: true,
+      followRoute: true,
+      autoMove: options?.autoMove ?? false,
+      routeLoop,
+      scenarioEnabled: false,
+      stepMeters: safeStepMeters,
+      intervalMs: safeIntervalMs,
     }))
     setMoving(false)
 
@@ -705,11 +1203,11 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
       speedKmh: 0,
       street: ROUTE_STREET_LABEL,
       event: "route",
-      note: "Маршрут создан на карте",
+      note: `Сохранён маршрут «${routeName}»: ${sourcePoints.length} исходн. точ., ${builtPoints.length} итог. точ., шаг ${safeStepMeters} м, интервал ${safeIntervalMs} мс`,
     })
 
     evaluateGeofences(start)
-  }, [evaluateGeofences, pushHistory, routeEditorPoints])
+  }, [evaluateGeofences, pushHistory, routeEditorEditingId, routeEditorPoints])
 
   const resetPosition = useCallback(() => {
     const start = KZ_SPB_ROUTE_POINTS[0]
@@ -1086,17 +1584,23 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
     routeError,
     routeEditorActive,
     routeEditorPoints,
+    routeEditorEditingId,
+    savedRoutes,
+    activeRouteId,
     startRouteEditor,
     cancelRouteEditor,
     saveRouteEditor,
     addRouteEditorPoint,
     undoRouteEditorPoint,
     clearRouteEditorPoints,
+    applySavedRoute,
+    renameSavedRoute,
+    deleteSavedRoute,
     updateRoutePointsText,
     applyRoutePointsText,
     setRoutePathFromMap,
     setRouteBuildState,
-  }), [theme, toggleTheme, activePanel, layers, toggleLayer, zoom, setZoom, rotationMode, toggleRotationMode, heading, centerRequest, requestCenter, settings, updateSettings, resetSettings, resetPosition, position, speedKmh, street, moving, moveOnce, placeBeacon, objects, history, clearHistory, geofences, addGeofence, updateGeofence, removeGeofence, insideGeofenceIds, scenarios, addScenario, updateScenario, removeScenario, addScenarioStep, updateScenarioStep, removeScenarioStep, routePointsText, routePoints, routePath, routeStatus, routeError, routeEditorActive, routeEditorPoints, startRouteEditor, cancelRouteEditor, saveRouteEditor, addRouteEditorPoint, undoRouteEditorPoint, clearRouteEditorPoints, updateRoutePointsText, applyRoutePointsText, setRoutePathFromMap, setRouteBuildState])
+  }), [theme, toggleTheme, activePanel, layers, toggleLayer, zoom, setZoom, rotationMode, toggleRotationMode, heading, centerRequest, requestCenter, settings, updateSettings, resetSettings, resetPosition, position, speedKmh, street, moving, moveOnce, placeBeacon, objects, history, clearHistory, geofences, addGeofence, updateGeofence, removeGeofence, insideGeofenceIds, scenarios, addScenario, updateScenario, removeScenario, addScenarioStep, updateScenarioStep, removeScenarioStep, routePointsText, routePoints, routePath, routeStatus, routeError, routeEditorActive, routeEditorPoints, routeEditorEditingId, savedRoutes, activeRouteId, startRouteEditor, cancelRouteEditor, saveRouteEditor, addRouteEditorPoint, undoRouteEditorPoint, clearRouteEditorPoints, applySavedRoute, renameSavedRoute, deleteSavedRoute, updateRoutePointsText, applyRoutePointsText, setRoutePathFromMap, setRouteBuildState])
 
   return <StoreContext value={value}>{children}</StoreContext>
 }

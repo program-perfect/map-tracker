@@ -20,6 +20,7 @@ import { ALARM_SOUND_OPTIONS, playAlarm } from "@/lib/sound"
 import { getSliderNumber } from "@/lib/slider-value"
 import type { AlarmSoundId, Direction, RouteBuildStatus } from "@/lib/types"
 import { DisplayModeSettings } from "@/components/display-mode-settings"
+import { UiThemeSettings } from "@/components/ui-theme-settings"
 
 const DIRECTIONS: { value: Direction; label: string }[] = [
   { value: "N", label: "Север ↑" },
@@ -223,12 +224,18 @@ export function SettingsPanel() {
     zoom,
     setZoom,
     routePointsText,
+    savedRoutes,
+    activeRouteId,
+    routePoints,
     routePath,
     routeStatus,
     routeError,
     updateRoutePointsText,
     applyRoutePointsText,
     startRouteEditor,
+    applySavedRoute,
+    renameSavedRoute,
+    deleteSavedRoute,
     setActivePanel,
   } = useStore()
   const markerSize = Math.max(MIN_MARKER_SIZE, Math.min(MAX_MARKER_SIZE, settings.markerSize ?? MIN_MARKER_SIZE))
@@ -242,27 +249,94 @@ export function SettingsPanel() {
 
       <ScrollArea hideScrollbar className="min-h-0 flex-1 overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]">
         <div className="space-y-6 px-4 py-5 pb-[calc(2rem+env(safe-area-inset-bottom))]">
-          <Section title="Редактор маршрута">
+          <Section title="Маршруты">
             <div className="space-y-3">
               <p className="text-xs leading-relaxed text-muted-foreground">
-                Включает режим выбора точек прямо на карте. Кликайте по улицам, домам или любым местам карты, затем сохраните или отмените маршрут в нижнем меню редактора.
+                Создавайте несколько маршрутов, выбирайте нужный для движения точки или открывайте его на редактирование прямо на карте.
               </p>
 
               <button
                 type="button"
                 onClick={() => {
-                  startRouteEditor()
+                  startRouteEditor([])
                   setActivePanel("map")
                 }}
                 className="w-full rounded-lg px-4 py-3 text-sm font-semibold text-primary-foreground transition-all hover:brightness-110 active:scale-[0.98]"
                 style={{ background: "var(--grad-primary)", boxShadow: "var(--glow-primary)" }}
               >
-                Задать маршрут на карте
+                Создать новый маршрут на карте
               </button>
+
+              <div className="space-y-2">
+                {savedRoutes.map((route) => (
+                  <div
+                    key={route.id}
+                    className="rounded-xl border border-border bg-background p-3"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <input
+                          type="text"
+                          defaultValue={route.name}
+                          onBlur={(event) => renameSavedRoute(route.id, event.currentTarget.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") event.currentTarget.blur()
+                          }}
+                          className="h-7 w-full min-w-0 rounded-md border border-transparent bg-transparent px-1 text-sm font-semibold outline-none transition-colors hover:border-border hover:bg-card focus:border-primary focus:bg-card focus:ring-2 focus:ring-primary/20"
+                          aria-label={`Название маршрута ${route.name}`}
+                        />
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          {route.sourcePoints?.length ?? route.points.length} исходн. · {route.points.length} итог. · шаг {route.stepMeters} м · {route.intervalMs} мс
+                          {activeRouteId === route.id ? " · выбран" : ""}
+                        </p>
+                      </div>
+
+                      <span className="shrink-0 rounded-full bg-card px-2 py-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+                        {route.routeLoop ? "loop" : "one-way"}
+                      </span>
+                    </div>
+
+                    <div className="mt-3 grid grid-cols-3 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          applySavedRoute(route.id, true)
+                          setActivePanel("map")
+                        }}
+                        className="rounded-lg px-2 py-2 text-xs font-semibold text-primary-foreground transition-all hover:brightness-110 active:scale-[0.98]"
+                        style={{ background: "var(--grad-primary)" }}
+                      >
+                        Идти
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          startRouteEditor(route.sourcePoints ?? route.points, route.id)
+                          setActivePanel("map")
+                        }}
+                        className="rounded-lg border border-border bg-card px-2 py-2 text-xs font-semibold transition-colors hover:bg-accent"
+                      >
+                        Править
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={savedRoutes.length <= 1}
+                        onClick={() => deleteSavedRoute(route.id)}
+                        className="rounded-lg border border-destructive/40 bg-destructive/10 px-2 py-2 text-xs font-semibold text-destructive transition-colors hover:bg-destructive/15 disabled:opacity-40"
+                      >
+                        Удалить
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </Section>
 
           <DisplayModeSettings />
+          <UiThemeSettings />
           <Section title="Сброс">
             <div className="space-y-3">
               <p className="text-xs leading-relaxed text-muted-foreground">
