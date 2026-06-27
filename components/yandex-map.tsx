@@ -9,6 +9,8 @@ import { createPortal } from "react-dom"
 
 const API_KEY = process.env.NEXT_PUBLIC_YANDEX_MAPS_API_KEY
 const ROUTE_COLOR = "#ef4444"
+const MAX_ROUTE_WAYPOINTS = 12
+const STARTUP_ROUTE_DELAY_MS = 900
 
 declare global { interface Window { ymaps?: any } }
 
@@ -39,6 +41,35 @@ function loadYmaps21(): Promise<void> {
 }
 
 type Status = "loading" | "ready" | "error"
+
+type PointerPosition = {
+  x: number
+  y: number
+}
+
+const ROTATION_WHEEL_STEP_DEG = 5
+const ROTATION_WHEEL_SNAP_DEG = 45
+
+function normalizeRotation(value: number) {
+  return ((value % 360) + 360) % 360
+}
+
+function angleBetweenPointers(points: Map<number, PointerPosition>): number | null {
+  const values = Array.from(points.values())
+  if (values.length < 2) return null
+
+  const [a, b] = values
+  return Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI
+}
+
+function rotationCoverScale(rotationDeg: number) {
+  const radians = Math.abs((normalizeRotation(rotationDeg) % 180) * Math.PI / 180)
+  const folded = radians > Math.PI / 2 ? Math.PI - radians : radians
+
+  // CSS rotation is a fallback for Yandex Maps 2.1, which has no native bearing.
+  // Scale prevents black corners around 45°.
+  return 1 + Math.sin(folded) * 0.88
+}
 
 function collectCoordinates(value: any, out: LatLng[]) {
   if (!Array.isArray(value)) return
@@ -78,22 +109,41 @@ function pushLeg(result: LatLng[], from: LatLng, to: LatLng) {
   result.push(to)
 }
 
-async function buildSegmentedRoadRoute(ymaps: any, points: LatLng[]): Promise<LatLng[]> {
+function buildFallbackRoute(points: LatLng[]): LatLng[] {
   const result: LatLng[] = []
   for (let i = 0; i < points.length - 1; i += 1) {
-    const from = points[i]
-    const to = points[i + 1]
-    try {
-      const segmentRoute = await ymaps.route([from, to], { routingMode: "auto" })
-      const segmentCoords = getRouteCoordinates(segmentRoute)
-      if (segmentCoords.length >= 2) {
-        result.push(...(result.length === 0 ? segmentCoords : segmentCoords.slice(1)))
-        continue
-      }
-    } catch {}
-    pushLeg(result, from, to)
+    pushLeg(result, points[i], points[i + 1])
   }
   return result
+}
+
+function limitWaypoints(points: LatLng[], maxPoints = MAX_ROUTE_WAYPOINTS): LatLng[] {
+  if (points.length <= maxPoints) return points
+  const result: LatLng[] = []
+  const last = points.length - 1
+
+  for (let i = 0; i < maxPoints; i += 1) {
+    result.push(points[Math.round((i / (maxPoints - 1)) * last)])
+  }
+
+  return result
+}
+
+async function buildRoadRoute(ymaps: any, points: LatLng[]): Promise<LatLng[]> {
+  // The previous implementation requested every road leg separately. On the
+  // current trace this produced dozens of route requests on page load. Try one
+  // multi-point request first and fall back to the lightweight straight polyline
+  // when the routing service is denied, slow, or unavailable.
+  try {
+    const route = await ymaps.route(limitWaypoints(points), {
+      routingMode: "auto",
+      mapStateAutoApply: false,
+    })
+    const coords = getRouteCoordinates(route)
+    if (coords.length >= 2) return coords
+  } catch {}
+
+  return buildFallbackRoute(points)
 }
 
 export function YandexMap() {
@@ -114,12 +164,17 @@ export function YandexMap() {
 
   const containerRef = useRef<HTMLDivElement>(null)
   const wrapperRef = useRef<HTMLDivElement>(null)
+  const rotationLayerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<any>(null)
   const placemarkRef = useRef<any>(null)
   const trafficRef = useRef<any>(null)
   const routeLineRef = useRef<any>(null)
   const destinationRef = useRef<any>(null)
   const [markerHost, setMarkerHost] = useState<HTMLElement | null>(null)
+  const [mapRotationDeg, setMapRotationDeg] = useState(0)
+  const mapRotationRef = useRef(0)
+  const touchPointersRef = useRef<Map<number, PointerPosition>>(new Map())
+  const touchRotationStartRef = useRef<{ angle: number; rotation: number } | null>(null)
 
   const placeBeaconRef = useRef(placeBeacon)
   placeBeaconRef.current = placeBeacon
@@ -135,6 +190,91 @@ export function YandexMap() {
   const [status, setStatus] = useState<Status>(API_KEY ? "loading" : "error")
 
   useEffect(() => {
+    mapRotationRef.current = mapRotationDeg
+  }, [mapRotationDeg])
+
+  useEffect(() => {
+    const el = rotationLayerRef.current
+    if (!el) return
+
+    const handleWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey) return
+
+      event.preventDefault()
+      event.stopPropagation()
+
+      const direction = event.deltaY > 0 ? 1 : -1
+      const step = event.shiftKey ? ROTATION_WHEEL_SNAP_DEG : ROTATION_WHEEL_STEP_DEG
+
+      setMapRotationDeg((prev) => {
+        const next = normalizeRotation(prev + direction * step)
+        mapRotationRef.current = next
+        return next
+      })
+    }
+
+    const options: AddEventListenerOptions = { passive: false, capture: true }
+    el.addEventListener("wheel", handleWheel, options)
+
+    return () => {
+      el.removeEventListener("wheel", handleWheel, options)
+    }
+  }, [])
+
+  function handleRotationPointerDown(event: React.PointerEvent<HTMLDivElement>) {
+    if (event.pointerType !== "touch") return
+
+    touchPointersRef.current.set(event.pointerId, {
+      x: event.clientX,
+      y: event.clientY,
+    })
+
+    const angle = angleBetweenPointers(touchPointersRef.current)
+    if (angle != null) {
+      touchRotationStartRef.current = {
+        angle,
+        rotation: mapRotationRef.current,
+      }
+    }
+  }
+
+  function handleRotationPointerMove(event: React.PointerEvent<HTMLDivElement>) {
+    if (event.pointerType !== "touch") return
+    if (!touchPointersRef.current.has(event.pointerId)) return
+
+    touchPointersRef.current.set(event.pointerId, {
+      x: event.clientX,
+      y: event.clientY,
+    })
+
+    const start = touchRotationStartRef.current
+    const angle = angleBetweenPointers(touchPointersRef.current)
+
+    if (!start || angle == null) return
+
+    const next = normalizeRotation(start.rotation + angle - start.angle)
+    mapRotationRef.current = next
+    setMapRotationDeg(next)
+  }
+
+  function handleRotationPointerUp(event: React.PointerEvent<HTMLDivElement>) {
+    if (event.pointerType !== "touch") return
+
+    touchPointersRef.current.delete(event.pointerId)
+
+    const angle = angleBetweenPointers(touchPointersRef.current)
+    if (angle == null) {
+      touchRotationStartRef.current = null
+      return
+    }
+
+    touchRotationStartRef.current = {
+      angle,
+      rotation: mapRotationRef.current,
+    }
+  }
+
+  useEffect(() => {
     if (!API_KEY) return
     let cancelled = false
     loadYmaps21()
@@ -144,6 +284,9 @@ export function YandexMap() {
         const map = new ymaps.Map(containerRef.current, { center: [position[0], position[1]], zoom, controls: [] }, { suppressMapOpenBlock: true, copyrightUseMapMargin: false })
         mapRef.current = map
         try { map.copyrights.togglePromo(false) } catch {}
+        try { map.behaviors.enable(["drag", "scrollZoom", "dblClickZoom", "multiTouch"]) } catch {}
+        try { map.behaviors.disable(["rightMouseButtonMagnifier"]) } catch {}
+        try { map.options.set("avoidFractionalZoom", true) } catch {}
         map.events.add("boundschange", () => {
           if (cancelled) return
           const z = Math.round(map.getZoom())
@@ -180,7 +323,6 @@ export function YandexMap() {
         trafficRef.current = null
         routeLineRef.current = null
         destinationRef.current = null
-        scriptPromise = null
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -239,32 +381,49 @@ export function YandexMap() {
     }
 
     let cancelled = false
+    let routeTimer: number | null = null
+    let idleCallbackId: number | null = null
     setRouteBuildStateRef.current("building")
-    buildSegmentedRoadRoute(ymaps, routePoints)
-      .then((coords) => {
-        if (cancelled) return
-        if (coords.length < 2) {
-          setRouteBuildStateRef.current("error", "No route geometry")
-          return
-        }
-        const routeLine = new ymaps.Polyline(coords, { hintContent: "KZ SPB" }, { strokeColor: ROUTE_COLOR, strokeOpacity: 0.96, strokeWidth: 4, strokeStyle: "solid" })
-        routeLineRef.current = routeLine
-        map.geoObjects.add(routeLine)
-        const destination = routePoints[routePoints.length - 1]
-        const destinationMarker = new ymaps.Placemark(destination, { hintContent: "SPB" }, { preset: "islands#redDotIcon", iconColor: ROUTE_COLOR })
-        destinationRef.current = destinationMarker
-        map.geoObjects.add(destinationMarker)
-        setRoutePathFromMapRef.current(coords)
-        try {
-          const bounds = routeLine.geometry.getBounds?.()
-          if (bounds) map.setBounds(bounds, { checkZoomRange: true, zoomMargin: 64, duration: 450 })
-        } catch {}
-      })
-      .catch(() => {
-        if (!cancelled) setRouteBuildStateRef.current("error", "No route geometry")
-      })
 
-    return () => { cancelled = true; clearRoute() }
+    const buildRoute = () => {
+      if (cancelled) return
+      void buildRoadRoute(ymaps, routePoints)
+        .then((coords) => {
+          if (cancelled) return
+          if (coords.length < 2) {
+            setRouteBuildStateRef.current("error", "No route geometry")
+            return
+          }
+          const routeLine = new ymaps.Polyline(coords, { hintContent: "KZ SPB" }, { strokeColor: ROUTE_COLOR, strokeOpacity: 0.96, strokeWidth: 4, strokeStyle: "solid" })
+          routeLineRef.current = routeLine
+          map.geoObjects.add(routeLine)
+          const destination = routePoints[routePoints.length - 1]
+          const destinationMarker = new ymaps.Placemark(destination, { hintContent: "SPB" }, { preset: "islands#redDotIcon", iconColor: ROUTE_COLOR })
+          destinationRef.current = destinationMarker
+          map.geoObjects.add(destinationMarker)
+          setRoutePathFromMapRef.current(coords)
+          try {
+            const bounds = routeLine.geometry.getBounds?.()
+            if (bounds) map.setBounds(bounds, { checkZoomRange: true, zoomMargin: 64, duration: 0 })
+          } catch {}
+        })
+        .catch(() => {
+          if (!cancelled) setRouteBuildStateRef.current("error", "No route geometry")
+        })
+    }
+
+    if ("requestIdleCallback" in window) {
+      idleCallbackId = (window as any).requestIdleCallback(buildRoute, { timeout: STARTUP_ROUTE_DELAY_MS })
+    } else {
+      routeTimer = window.setTimeout(buildRoute, STARTUP_ROUTE_DELAY_MS)
+    }
+
+    return () => {
+      cancelled = true
+      if (idleCallbackId != null && "cancelIdleCallback" in window) (window as any).cancelIdleCallback(idleCallbackId)
+      if (routeTimer != null) window.clearTimeout(routeTimer)
+      clearRoute()
+    }
   }, [routePoints, settings.routeMode, status])
 
   useEffect(() => {
@@ -301,9 +460,28 @@ export function YandexMap() {
   }, [position])
 
   const CROP = 52
+  const rotationScale = rotationCoverScale(mapRotationDeg)
+
   return (
-    <div className="absolute inset-0 overflow-hidden" style={{ borderRadius: "inherit" }}>
-      <div ref={wrapperRef} className="absolute" style={{ inset: `-${CROP}px` }}>
+    <div
+      ref={rotationLayerRef}
+      className="absolute inset-0 overflow-hidden"
+      style={{ borderRadius: "inherit", touchAction: "none" }}
+      onPointerDown={handleRotationPointerDown}
+      onPointerMove={handleRotationPointerMove}
+      onPointerUp={handleRotationPointerUp}
+      onPointerCancel={handleRotationPointerUp}
+      onPointerLeave={handleRotationPointerUp}
+    >
+      <div
+        ref={wrapperRef}
+        className="absolute origin-center will-change-transform"
+        style={{
+          inset: `-${CROP}px`,
+          transform: `rotate(${mapRotationDeg}deg) scale(${rotationScale})`,
+          transformOrigin: "center center",
+        }}
+      >
         <div ref={containerRef} className={cn("absolute inset-0", theme === "dark" && status === "ready" && "map-dark-filter")} aria-label="Route map" />
       </div>
 

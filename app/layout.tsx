@@ -4,11 +4,14 @@ import { Geist, Geist_Mono } from 'next/font/google'
 import './globals.css'
 import { DisplayModeManager } from '@/components/display-mode-manager'
 
-const geistSans = Geist({ variable: '--font-geist-sans', subsets: ['latin'] })
+const geistSans = Geist({ variable: '--font-geist-sans', subsets: ['latin'], display: 'swap' })
 const geistMono = Geist_Mono({
   variable: '--font-geist-mono',
   subsets: ['latin'],
+  display: 'swap',
 })
+
+const analyticsEnabled = process.env.NEXT_PUBLIC_ENABLE_ANALYTICS === '1'
 
 export const metadata: Metadata = {
   title: 'Маяк — отслеживание объектов на карте',
@@ -51,7 +54,7 @@ export default function RootLayout({
       <body className="font-sans antialiased">
         {children}
         <DisplayModeManager />
-        {process.env.NODE_ENV === 'production' && <Analytics />}
+        {analyticsEnabled && <Analytics />}
       </body>
     </html>
   )

@@ -2,6 +2,40 @@ import type { AlarmSoundId } from "@/lib/types"
 
 // Lightweight WebAudio alarm tones, no assets needed.
 let ctx: AudioContext | null = null
+let audioUnlocked = false
+
+type NavigatorWithUserActivation = Navigator & {
+  userActivation?: {
+    hasBeenActive?: boolean
+    isActive?: boolean
+  }
+}
+
+function hasUserActivatedAudio() {
+  if (typeof navigator === "undefined") return false
+  const activation = (navigator as NavigatorWithUserActivation).userActivation
+  return audioUnlocked || Boolean(activation?.hasBeenActive || activation?.isActive)
+}
+
+function resumeAudio(audio: AudioContext) {
+  if (audio.state !== "suspended") return
+  try {
+    void audio.resume().catch(() => {})
+  } catch {}
+}
+
+function unlockAudio() {
+  audioUnlocked = true
+  const audio = getCtx()
+  if (audio) resumeAudio(audio)
+}
+
+if (typeof window !== "undefined") {
+  const options: AddEventListenerOptions = { once: true, passive: true, capture: true }
+  window.addEventListener("pointerdown", unlockAudio, options)
+  window.addEventListener("touchstart", unlockAudio, options)
+  window.addEventListener("keydown", unlockAudio, { once: true, capture: true })
+}
 
 function getCtx(): AudioContext | null {
   if (typeof window === "undefined") return null
@@ -90,9 +124,10 @@ function playTone(audio: AudioContext, tone: Tone, volume: number, offsetMs: num
 }
 
 export function playAlarm(sound: AlarmSoundId = "beep", volume = 1) {
+  if (!hasUserActivatedAudio()) return
   const audio = getCtx()
   if (!audio) return
-  if (audio.state === "suspended") void audio.resume()
+  resumeAudio(audio)
 
   const pattern = ALARM_PATTERNS[sound] ?? ALARM_PATTERNS.beep
   let offset = 0
@@ -103,9 +138,10 @@ export function playAlarm(sound: AlarmSoundId = "beep", volume = 1) {
 }
 
 export function playBeep(volume = 1, frequency = 880, durationMs = 120) {
+  if (!hasUserActivatedAudio()) return
   const audio = getCtx()
   if (!audio) return
-  if (audio.state === "suspended") void audio.resume()
+  resumeAudio(audio)
 
   playTone(audio, { frequency, durationMs, type: "sine" }, volume, 0)
 }
