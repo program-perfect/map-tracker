@@ -228,6 +228,8 @@ export function SettingsPanel() {
     routeError,
     updateRoutePointsText,
     applyRoutePointsText,
+    startRouteEditor,
+    setActivePanel,
   } = useStore()
   const markerSize = Math.max(MIN_MARKER_SIZE, Math.min(MAX_MARKER_SIZE, settings.markerSize ?? MIN_MARKER_SIZE))
   const [resetDialogOpen, setResetDialogOpen] = useState(false)
@@ -240,6 +242,26 @@ export function SettingsPanel() {
 
       <ScrollArea hideScrollbar className="min-h-0 flex-1 overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]">
         <div className="space-y-6 px-4 py-5 pb-[calc(2rem+env(safe-area-inset-bottom))]">
+          <Section title="Редактор маршрута">
+            <div className="space-y-3">
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                Включает режим выбора точек прямо на карте. Кликайте по улицам, домам или любым местам карты, затем сохраните или отмените маршрут в нижнем меню редактора.
+              </p>
+
+              <button
+                type="button"
+                onClick={() => {
+                  startRouteEditor()
+                  setActivePanel("map")
+                }}
+                className="w-full rounded-lg px-4 py-3 text-sm font-semibold text-primary-foreground transition-all hover:brightness-110 active:scale-[0.98]"
+                style={{ background: "var(--grad-primary)", boxShadow: "var(--glow-primary)" }}
+              >
+                Задать маршрут на карте
+              </button>
+            </div>
+          </Section>
+
           <DisplayModeSettings />
           <Section title="Сброс">
             <div className="space-y-3">

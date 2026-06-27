@@ -8,6 +8,7 @@ import { PanelContent } from "@/components/panel-content"
 import { ScaleBar } from "@/components/scale-bar"
 import { TopBar } from "@/components/top-bar"
 import { YandexMap } from "@/components/yandex-map"
+import { RouteEditorMenu } from "@/components/route-editor-menu"
 import { useStore } from "@/lib/store"
 import { cn } from "@/lib/utils"
 import { ChevronLeft, ChevronRight } from "lucide-react"
@@ -62,7 +63,7 @@ function usePrefersReducedMotion() {
 }
 
 export function AppShell() {
-  const { activePanel, settings } = useStore()
+  const { activePanel, settings, routeEditorActive } = useStore()
   const panelWidth = settings.panelWidth ?? 340
   const railWidth = 68
   const [collapsed, setCollapsed] = useState(false)
@@ -118,7 +119,7 @@ export function AppShell() {
   }
 
   return (
-    <div className="relative h-dvh w-full overflow-hidden bg-card/95 text-foreground dark:bg-card/95">
+    <div className={cn("relative h-dvh w-full overflow-hidden bg-card/95 text-foreground dark:bg-card/95", routeEditorActive && "route-editor-frame")}>
       {/* Desktop map sheet: its left edge moves with the panel and clips the map with soft corners. */}
       {isDesktop === true && (
         <div
@@ -280,6 +281,10 @@ export function AppShell() {
         <div className="pointer-events-auto absolute inset-x-0 bottom-0 p-2">
           <BottomNav />
         </div>
+      </div>
+
+      <div className="pointer-events-none absolute inset-x-0 bottom-[calc(5.75rem+env(safe-area-inset-bottom))] z-50 flex justify-center px-3 lg:bottom-6">
+        <RouteEditorMenu />
       </div>
     </div>
   )
