@@ -233,6 +233,7 @@ export function SettingsPanel() {
     applyRoutePointsText,
     startRouteEditor,
     applySavedRoute,
+    renameSavedRoute,
     deleteSavedRoute,
     setActivePanel,
   } = useStore()
@@ -273,11 +274,18 @@ export function SettingsPanel() {
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="truncate text-sm font-semibold">
-                          {route.name}
-                        </p>
+                        <input
+                          type="text"
+                          defaultValue={route.name}
+                          onBlur={(event) => renameSavedRoute(route.id, event.currentTarget.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") event.currentTarget.blur()
+                          }}
+                          className="h-7 w-full min-w-0 rounded-md border border-transparent bg-transparent px-1 text-sm font-semibold outline-none transition-colors hover:border-border hover:bg-card focus:border-primary focus:bg-card focus:ring-2 focus:ring-primary/20"
+                          aria-label={`Название маршрута ${route.name}`}
+                        />
                         <p className="mt-0.5 text-xs text-muted-foreground">
-                          {route.points.length} точ. · шаг {route.stepMeters} м · {route.intervalMs} мс
+                          {route.sourcePoints?.length ?? route.points.length} исходн. · {route.points.length} итог. · шаг {route.stepMeters} м · {route.intervalMs} мс
                           {activeRouteId === route.id ? " · выбран" : ""}
                         </p>
                       </div>
@@ -303,7 +311,7 @@ export function SettingsPanel() {
                       <button
                         type="button"
                         onClick={() => {
-                          startRouteEditor(route.points, route.id)
+                          startRouteEditor(route.sourcePoints ?? route.points, route.id)
                           setActivePanel("map")
                         }}
                         className="rounded-lg border border-border bg-card px-2 py-2 text-xs font-semibold transition-colors hover:bg-accent"

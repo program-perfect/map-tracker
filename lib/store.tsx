@@ -81,6 +81,13 @@ type SavedRoute = {
   id: string
   name: string
   points: LatLng[]
+  sourcePoints?: LatLng[]
+  interpolationEnabled?: boolean
+  interpolationFactor?: number
+  sourceStepMeters?: number
+  sourceIntervalMs?: number
+  generatedStepMeters?: number
+  generatedIntervalMs?: number
   stepMeters: number
   intervalMs: number
   routeLoop: boolean
@@ -94,6 +101,12 @@ type RouteEditorSaveOptions = {
   intervalMs?: number
   autoMove?: boolean
   routeLoop?: boolean
+  interpolationEnabled?: boolean
+  interpolationFactor?: number
+  sourceStepMeters?: number
+  sourceIntervalMs?: number
+  generatedStepMeters?: number
+  generatedIntervalMs?: number
 }
 
 const DEFAULT_SETTINGS: BeaconSettings = {
@@ -310,6 +323,13 @@ const DEFAULT_SAVED_ROUTES: SavedRoute[] = [
     id: "default-kz-spb",
     name: "Казахстан → Санкт-Петербург",
     points: KZ_SPB_ROUTE_POINTS,
+    sourcePoints: KZ_SPB_ROUTE_POINTS,
+    interpolationEnabled: false,
+    interpolationFactor: 0,
+    sourceStepMeters: DEFAULT_SETTINGS.stepMeters,
+    sourceIntervalMs: DEFAULT_SETTINGS.intervalMs,
+    generatedStepMeters: DEFAULT_SETTINGS.stepMeters,
+    generatedIntervalMs: DEFAULT_SETTINGS.intervalMs,
     stepMeters: DEFAULT_SETTINGS.stepMeters,
     intervalMs: DEFAULT_SETTINGS.intervalMs,
     routeLoop: DEFAULT_SETTINGS.routeLoop,
@@ -317,6 +337,43 @@ const DEFAULT_SAVED_ROUTES: SavedRoute[] = [
     updatedAt: 0,
   },
 ]
+
+function clampRouteNumber(value: unknown, min: number, max: number, fallback: number) {
+  const number = typeof value === "number" ? value : Number(value)
+  if (!Number.isFinite(number)) return fallback
+  return Math.max(min, Math.min(max, Math.round(number)))
+}
+
+function interpolateRoutePoints(points: LatLng[], factor: number) {
+  const safeFactor = clampRouteNumber(factor, 0, 25, 0)
+  if (points.length < 2 || safeFactor <= 0) return points
+
+  const next: LatLng[] = []
+
+  for (let i = 0; i < points.length - 1; i += 1) {
+    const from = points[i]
+    const to = points[i + 1]
+
+    next.push(from)
+
+    for (let j = 1; j <= safeFactor; j += 1) {
+      const t = j / (safeFactor + 1)
+      next.push([
+        from[0] + (to[0] - from[0]) * t,
+        from[1] + (to[1] - from[1]) * t,
+      ])
+    }
+  }
+
+  next.push(points[points.length - 1])
+  return next
+}
+
+function buildSavedRoutePoints(sourcePoints: LatLng[], interpolationEnabled?: boolean, interpolationFactor?: number) {
+  return interpolationEnabled
+    ? interpolateRoutePoints(sourcePoints, interpolationFactor ?? 0)
+    : sourcePoints
+}
 
 function formatRoutePoints(points: LatLng[]) {
   return points.map((point) => `${point[0].toFixed(6)}, ${point[1].toFixed(6)}`).join("\n")
@@ -344,12 +401,40 @@ function normalizeSavedRoute(value: unknown): SavedRoute | null {
 
   const now = Date.now()
 
+  const sourcePoints = Array.isArray(route.sourcePoints)
+    ? route.sourcePoints.filter((point): point is LatLng => (
+        Array.isArray(point) &&
+        point.length === 2 &&
+        typeof point[0] === "number" &&
+        typeof point[1] === "number" &&
+        Number.isFinite(point[0]) &&
+        Number.isFinite(point[1]) &&
+        Math.abs(point[0]) <= 90 &&
+        Math.abs(point[1]) <= 180
+      ))
+    : points
+
+  const interpolationEnabled = Boolean(route.interpolationEnabled)
+  const interpolationFactor = clampRouteNumber(route.interpolationFactor, 0, 25, 0)
+  const sourceStepMeters = clampRouteNumber(route.sourceStepMeters ?? route.stepMeters, 1, 30_000, DEFAULT_SETTINGS.stepMeters)
+  const sourceIntervalMs = clampRouteNumber(route.sourceIntervalMs ?? route.intervalMs, MIN_INTERVAL_MS, MAX_INTERVAL_MS, DEFAULT_SETTINGS.intervalMs)
+  const generatedStepMeters = clampRouteNumber(route.generatedStepMeters ?? route.stepMeters, 1, 30_000, sourceStepMeters)
+  const generatedIntervalMs = clampRouteNumber(route.generatedIntervalMs ?? route.intervalMs, MIN_INTERVAL_MS, MAX_INTERVAL_MS, sourceIntervalMs)
+  const builtPoints = buildSavedRoutePoints(sourcePoints.length >= 2 ? sourcePoints : points, interpolationEnabled, interpolationFactor)
+
   return {
     id: route.id,
     name: typeof route.name === "string" && route.name.trim() ? route.name.trim() : "Маршрут",
-    points,
-    stepMeters: Math.max(1, Math.min(30_000, Math.round(route.stepMeters ?? DEFAULT_SETTINGS.stepMeters))),
-    intervalMs: Math.max(MIN_INTERVAL_MS, Math.min(MAX_INTERVAL_MS, Math.round(route.intervalMs ?? DEFAULT_SETTINGS.intervalMs))),
+    points: builtPoints,
+    sourcePoints: sourcePoints.length >= 2 ? sourcePoints : points,
+    interpolationEnabled,
+    interpolationFactor,
+    sourceStepMeters,
+    sourceIntervalMs,
+    generatedStepMeters,
+    generatedIntervalMs,
+    stepMeters: interpolationEnabled ? generatedStepMeters : sourceStepMeters,
+    intervalMs: interpolationEnabled ? generatedIntervalMs : sourceIntervalMs,
     routeLoop: Boolean(route.routeLoop),
     createdAt: typeof route.createdAt === "number" ? route.createdAt : now,
     updatedAt: typeof route.updatedAt === "number" ? route.updatedAt : now,
@@ -444,6 +529,7 @@ interface StoreValue {
   routeError: string | null
   routeEditorActive: boolean
   routeEditorPoints: LatLng[]
+  routeEditorEditingId: string | null
   savedRoutes: SavedRoute[]
   activeRouteId: string | null
   startRouteEditor: (points?: LatLng[], routeId?: string | null) => void
@@ -453,6 +539,7 @@ interface StoreValue {
   undoRouteEditorPoint: () => void
   clearRouteEditorPoints: () => void
   applySavedRoute: (routeId: string, autoMove?: boolean) => void
+  renameSavedRoute: (routeId: string, name: string) => void
   deleteSavedRoute: (routeId: string) => void
   updateRoutePointsText: (text: string) => void
   applyRoutePointsText: () => void
@@ -787,9 +874,9 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
     const start = points[0]
 
     setActiveRouteId(route.id)
-    setRoutePointsText(formatRoutePoints(points))
-    setRoutePoints(points)
-    routePointsRef.current = points
+    setRoutePointsText(formatRoutePoints(builtPoints))
+    setRoutePoints(builtPoints)
+    routePointsRef.current = builtPoints
 
     setRoutePath([])
     routePathRef.current = []
@@ -833,6 +920,22 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
     evaluateGeofences(start)
   }, [evaluateGeofences, pushHistory])
 
+  const renameSavedRoute = useCallback((routeId: string, name: string) => {
+    const safeName = name.trim() || "Маршрут"
+
+    setSavedRoutes((prev) => {
+      const next = prev.map((route) =>
+        route.id === routeId
+          ? { ...route, name: safeName, updatedAt: Date.now() }
+          : route
+      )
+
+      writePersistedSavedRoutes(next)
+      savedRoutesRef.current = next
+      return next
+    })
+  }, [])
+
   const deleteSavedRoute = useCallback((routeId: string) => {
     setSavedRoutes((prev) => {
       const next = prev.filter((route) => route.id !== routeId)
@@ -860,17 +963,54 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
       ? savedRoutesRef.current.find((route) => route.id === routeEditorEditingId)
       : null
 
-    const safeStepMeters = Math.max(1, Math.min(30_000, Math.round(options?.stepMeters ?? existing?.stepMeters ?? settingsRef.current.stepMeters ?? 5)))
-    const safeIntervalMs = Math.max(MIN_INTERVAL_MS, Math.min(MAX_INTERVAL_MS, Math.round(options?.intervalMs ?? existing?.intervalMs ?? settingsRef.current.intervalMs ?? DEFAULT_INTERVAL_MS)))
+    const interpolationEnabled = options?.interpolationEnabled ?? existing?.interpolationEnabled ?? false
+    const interpolationFactor = clampRouteNumber(options?.interpolationFactor ?? existing?.interpolationFactor ?? 0, 0, 25, 0)
+
+    const sourceStepMeters = clampRouteNumber(
+      options?.sourceStepMeters ?? options?.stepMeters ?? existing?.sourceStepMeters ?? existing?.stepMeters ?? settingsRef.current.stepMeters ?? 5,
+      1,
+      30_000,
+      5
+    )
+    const sourceIntervalMs = clampRouteNumber(
+      options?.sourceIntervalMs ?? options?.intervalMs ?? existing?.sourceIntervalMs ?? existing?.intervalMs ?? settingsRef.current.intervalMs ?? DEFAULT_INTERVAL_MS,
+      MIN_INTERVAL_MS,
+      MAX_INTERVAL_MS,
+      DEFAULT_INTERVAL_MS
+    )
+    const generatedStepMeters = clampRouteNumber(
+      options?.generatedStepMeters ?? existing?.generatedStepMeters ?? sourceStepMeters,
+      1,
+      30_000,
+      sourceStepMeters
+    )
+    const generatedIntervalMs = clampRouteNumber(
+      options?.generatedIntervalMs ?? existing?.generatedIntervalMs ?? sourceIntervalMs,
+      MIN_INTERVAL_MS,
+      MAX_INTERVAL_MS,
+      sourceIntervalMs
+    )
+
+    const safeStepMeters = interpolationEnabled ? generatedStepMeters : sourceStepMeters
+    const safeIntervalMs = interpolationEnabled ? generatedIntervalMs : sourceIntervalMs
     const routeLoop = options?.routeLoop ?? existing?.routeLoop ?? settingsRef.current.routeLoop ?? false
     const routeName = (options?.name ?? existing?.name ?? `Маршрут ${savedRoutesRef.current.length + 1}`).trim() || "Маршрут"
     const routeId = existing?.id ?? uid()
-    const start = points[0]
+    const sourcePoints = points
+    const builtPoints = buildSavedRoutePoints(sourcePoints, interpolationEnabled, interpolationFactor)
+    const start = builtPoints[0]
 
     const savedRoute: SavedRoute = {
       id: routeId,
       name: routeName,
-      points,
+      points: builtPoints,
+      sourcePoints,
+      interpolationEnabled,
+      interpolationFactor,
+      sourceStepMeters,
+      sourceIntervalMs,
+      generatedStepMeters,
+      generatedIntervalMs,
       stepMeters: safeStepMeters,
       intervalMs: safeIntervalMs,
       routeLoop,
@@ -894,9 +1034,9 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
     setRouteEditorPoints([])
     setRouteEditorEditingId(null)
 
-    setRoutePointsText(formatRoutePoints(points))
-    setRoutePoints(points)
-    routePointsRef.current = points
+    setRoutePointsText(formatRoutePoints(builtPoints))
+    setRoutePoints(builtPoints)
+    routePointsRef.current = builtPoints
 
     setRoutePath([])
     routePathRef.current = []
@@ -934,7 +1074,7 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
       speedKmh: 0,
       street: ROUTE_STREET_LABEL,
       event: "route",
-      note: `Сохранён маршрут «${routeName}»: ${points.length} точ., шаг ${safeStepMeters} м, интервал ${safeIntervalMs} мс`,
+      note: `Сохранён маршрут «${routeName}»: ${sourcePoints.length} исходн. точ., ${builtPoints.length} итог. точ., шаг ${safeStepMeters} м, интервал ${safeIntervalMs} мс`,
     })
 
     evaluateGeofences(start)
@@ -1315,6 +1455,7 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
     routeError,
     routeEditorActive,
     routeEditorPoints,
+    routeEditorEditingId,
     savedRoutes,
     activeRouteId,
     startRouteEditor,
@@ -1324,12 +1465,13 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
     undoRouteEditorPoint,
     clearRouteEditorPoints,
     applySavedRoute,
+    renameSavedRoute,
     deleteSavedRoute,
     updateRoutePointsText,
     applyRoutePointsText,
     setRoutePathFromMap,
     setRouteBuildState,
-  }), [theme, toggleTheme, activePanel, layers, toggleLayer, zoom, setZoom, rotationMode, toggleRotationMode, heading, centerRequest, requestCenter, settings, updateSettings, resetSettings, resetPosition, position, speedKmh, street, moving, moveOnce, placeBeacon, objects, history, clearHistory, geofences, addGeofence, updateGeofence, removeGeofence, insideGeofenceIds, scenarios, addScenario, updateScenario, removeScenario, addScenarioStep, updateScenarioStep, removeScenarioStep, routePointsText, routePoints, routePath, routeStatus, routeError, routeEditorActive, routeEditorPoints, savedRoutes, activeRouteId, startRouteEditor, cancelRouteEditor, saveRouteEditor, addRouteEditorPoint, undoRouteEditorPoint, clearRouteEditorPoints, applySavedRoute, deleteSavedRoute, updateRoutePointsText, applyRoutePointsText, setRoutePathFromMap, setRouteBuildState])
+  }), [theme, toggleTheme, activePanel, layers, toggleLayer, zoom, setZoom, rotationMode, toggleRotationMode, heading, centerRequest, requestCenter, settings, updateSettings, resetSettings, resetPosition, position, speedKmh, street, moving, moveOnce, placeBeacon, objects, history, clearHistory, geofences, addGeofence, updateGeofence, removeGeofence, insideGeofenceIds, scenarios, addScenario, updateScenario, removeScenario, addScenarioStep, updateScenarioStep, removeScenarioStep, routePointsText, routePoints, routePath, routeStatus, routeError, routeEditorActive, routeEditorPoints, routeEditorEditingId, savedRoutes, activeRouteId, startRouteEditor, cancelRouteEditor, saveRouteEditor, addRouteEditorPoint, undoRouteEditorPoint, clearRouteEditorPoints, applySavedRoute, renameSavedRoute, deleteSavedRoute, updateRoutePointsText, applyRoutePointsText, setRoutePathFromMap, setRouteBuildState])
 
   return <StoreContext value={value}>{children}</StoreContext>
 }

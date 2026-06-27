@@ -1,4 +1,107 @@
-"use client"
+import fs from "node:fs"
+
+function replaceOnce(content, search, replacement, label) {
+  if (!content.includes(search)) {
+    throw new Error(`Cannot find block: ${label}`)
+  }
+  return content.replace(search, replacement)
+}
+
+const storeFile = "lib/store.tsx"
+const menuFile = "components/route-editor-menu.tsx"
+const settingsFile = "components/panels/settings-panel.tsx"
+
+let store = fs.readFileSync(storeFile, "utf8").replace(/\r\n/g, "\n")
+let settings = fs.readFileSync(settingsFile, "utf8").replace(/\r\n/g, "\n")
+
+// ---------- lib/store.tsx ----------
+
+if (!store.includes("routeEditorEditingId: string | null")) {
+  store = replaceOnce(
+    store,
+    `  routeEditorActive: boolean
+  routeEditorPoints: LatLng[]`,
+    `  routeEditorActive: boolean
+  routeEditorPoints: LatLng[]
+  routeEditorEditingId: string | null`,
+    "StoreValue routeEditorEditingId"
+  )
+}
+
+if (!store.includes("renameSavedRoute:")) {
+  store = replaceOnce(
+    store,
+    `  applySavedRoute: (routeId: string, autoMove?: boolean) => void
+  deleteSavedRoute: (routeId: string) => void`,
+    `  applySavedRoute: (routeId: string, autoMove?: boolean) => void
+  renameSavedRoute: (routeId: string, name: string) => void
+  deleteSavedRoute: (routeId: string) => void`,
+    "StoreValue renameSavedRoute"
+  )
+}
+
+if (!store.includes("const renameSavedRoute = useCallback")) {
+  store = replaceOnce(
+    store,
+    `  const deleteSavedRoute = useCallback((routeId: string) => {`,
+    `  const renameSavedRoute = useCallback((routeId: string, name: string) => {
+    const safeName = name.trim() || "Маршрут"
+
+    setSavedRoutes((prev) => {
+      const next = prev.map((route) =>
+        route.id === routeId
+          ? { ...route, name: safeName, updatedAt: Date.now() }
+          : route
+      )
+
+      writePersistedSavedRoutes(next)
+      savedRoutesRef.current = next
+      return next
+    })
+  }, [])
+
+  const deleteSavedRoute = useCallback((routeId: string) => {`,
+    "renameSavedRoute callback"
+  )
+}
+
+if (!store.includes("    routeEditorEditingId,")) {
+  store = replaceOnce(
+    store,
+    `    routeEditorActive,
+    routeEditorPoints,`,
+    `    routeEditorActive,
+    routeEditorPoints,
+    routeEditorEditingId,`,
+    "store value routeEditorEditingId"
+  )
+}
+
+if (!store.includes("    renameSavedRoute,")) {
+  store = replaceOnce(
+    store,
+    `    applySavedRoute,
+    deleteSavedRoute,`,
+    `    applySavedRoute,
+    renameSavedRoute,
+    deleteSavedRoute,`,
+    "store value renameSavedRoute"
+  )
+}
+
+store = store.replace(
+  `routeEditorActive, routeEditorPoints, savedRoutes, activeRouteId, startRouteEditor`,
+  `routeEditorActive, routeEditorPoints, routeEditorEditingId, savedRoutes, activeRouteId, startRouteEditor`
+)
+
+store = store.replace(
+  `clearRouteEditorPoints, applySavedRoute, deleteSavedRoute, updateRoutePointsText`,
+  `clearRouteEditorPoints, applySavedRoute, renameSavedRoute, deleteSavedRoute, updateRoutePointsText`
+)
+
+// ---------- components/route-editor-menu.tsx ----------
+
+const routeEditorMenu = `"use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
 
@@ -18,7 +121,7 @@ function compactAddress(value: unknown, fallback: string) {
     .map((part) => part.trim())
     .filter(Boolean)
     .filter((part) => part !== "Россия" && part !== "Российская Федерация")
-    .filter((part) => !/^\d{5,6}$/.test(part))
+    .filter((part) => !/^\\d{5,6}$/.test(part))
 
   if (parts.length >= 3) return parts.slice(-2).join(", ")
   if (parts.length >= 1) return parts.slice(-2).join(", ")
@@ -67,15 +170,8 @@ export function RouteEditorMenu() {
   const [name, setName] = useState("Новый маршрут")
   const [nameTouched, setNameTouched] = useState(false)
   const [nameResolving, setNameResolving] = useState(false)
-
-  const [interpolationEnabled, setInterpolationEnabled] = useState(false)
-  const [interpolationFactor, setInterpolationFactor] = useState(2)
-
-  const [sourceStepMeters, setSourceStepMeters] = useState(settings.stepMeters ?? 5)
-  const [sourceIntervalMs, setSourceIntervalMs] = useState(settings.intervalMs ?? 1000)
-  const [generatedStepMeters, setGeneratedStepMeters] = useState(settings.stepMeters ?? 5)
-  const [generatedIntervalMs, setGeneratedIntervalMs] = useState(settings.intervalMs ?? 1000)
-
+  const [stepMeters, setStepMeters] = useState(settings.stepMeters ?? 5)
+  const [intervalMs, setIntervalMs] = useState(settings.intervalMs ?? 1000)
   const [autoMove, setAutoMove] = useState(false)
   const [routeLoop, setRouteLoop] = useState(settings.routeLoop ?? false)
   const lastAutoNameKeyRef = useRef("")
@@ -91,15 +187,8 @@ export function RouteEditorMenu() {
 
     setName(editedRoute?.name ?? "Новый маршрут")
     setNameTouched(Boolean(editedRoute))
-
-    setInterpolationEnabled(editedRoute?.interpolationEnabled ?? false)
-    setInterpolationFactor(editedRoute?.interpolationFactor ?? 2)
-
-    setSourceStepMeters(editedRoute?.sourceStepMeters ?? editedRoute?.stepMeters ?? settings.stepMeters ?? 5)
-    setSourceIntervalMs(editedRoute?.sourceIntervalMs ?? editedRoute?.intervalMs ?? settings.intervalMs ?? 1000)
-    setGeneratedStepMeters(editedRoute?.generatedStepMeters ?? editedRoute?.stepMeters ?? settings.stepMeters ?? 5)
-    setGeneratedIntervalMs(editedRoute?.generatedIntervalMs ?? editedRoute?.intervalMs ?? settings.intervalMs ?? 1000)
-
+    setStepMeters(editedRoute?.stepMeters ?? settings.stepMeters ?? 5)
+    setIntervalMs(editedRoute?.intervalMs ?? settings.intervalMs ?? 1000)
     setRouteLoop(editedRoute?.routeLoop ?? settings.routeLoop ?? false)
     setAutoMove(false)
     lastAutoNameKeyRef.current = ""
@@ -113,7 +202,7 @@ export function RouteEditorMenu() {
 
     const first = routeEditorPoints[0]
     const last = routeEditorPoints[routeEditorPoints.length - 1]
-    const key = `${first[0]},${first[1]}|${last[0]},${last[1]}`
+    const key = \`\${first[0]},\${first[1]}|\${last[0]},\${last[1]}\`
 
     if (lastAutoNameKeyRef.current === key) return
     lastAutoNameKeyRef.current = key
@@ -123,8 +212,8 @@ export function RouteEditorMenu() {
     async function resolveName() {
       setNameResolving(true)
 
-      const firstFallback = `${first[0].toFixed(5)}, ${first[1].toFixed(5)}`
-      const lastFallback = `${last[0].toFixed(5)}, ${last[1].toFixed(5)}`
+      const firstFallback = \`\${first[0].toFixed(5)}, \${first[1].toFixed(5)}\`
+      const lastFallback = \`\${last[0].toFixed(5)}, \${last[1].toFixed(5)}\`
 
       const [from, to] = await Promise.all([
         reverseGeocodePoint(first, firstFallback),
@@ -133,7 +222,7 @@ export function RouteEditorMenu() {
 
       if (cancelled) return
 
-      setName(`${from} → ${to}`)
+      setName(\`\${from} → \${to}\`)
       setNameResolving(false)
     }
 
@@ -147,20 +236,8 @@ export function RouteEditorMenu() {
   if (!routeEditorActive) return null
 
   const canSave = routeEditorPoints.length >= 2
-
-  const safeInterpolationFactor = clampNumber(interpolationFactor, 0, 25, 2)
-
-  const safeSourceStepMeters = clampNumber(sourceStepMeters, 1, 30_000, settings.stepMeters ?? 5)
-  const safeSourceIntervalMs = clampNumber(sourceIntervalMs, 1, 300_000, settings.intervalMs ?? 1000)
-
-  const safeGeneratedStepMeters = clampNumber(generatedStepMeters, 1, 30_000, safeSourceStepMeters)
-  const safeGeneratedIntervalMs = clampNumber(generatedIntervalMs, 1, 300_000, safeSourceIntervalMs)
-
-  const sourcePointCount = routeEditorPoints.length
-  const generatedPointCount = interpolationEnabled && sourcePointCount >= 2
-    ? Math.max(0, (sourcePointCount - 1) * safeInterpolationFactor)
-    : 0
-  const finalPointCount = sourcePointCount + generatedPointCount
+  const safeStepMeters = clampNumber(stepMeters, 1, 30_000, settings.stepMeters ?? 5)
+  const safeIntervalMs = clampNumber(intervalMs, 1, 300_000, settings.intervalMs ?? 1000)
 
   return (
     <>
@@ -168,10 +245,10 @@ export function RouteEditorMenu() {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold">
-              Редактор маршрута · {sourcePointCount} исходн. точ.
+              Редактор маршрута · {routeEditorPoints.length} точ.
             </p>
             <p className="text-xs text-muted-foreground">
-              ПКМ по карте добавляет исходную точку. Достроенные точки добавятся при сохранении.
+              ПКМ по карте добавляет точку маршрута. Название возьмётся из адресов первой и последней точки.
             </p>
           </div>
 
@@ -222,18 +299,18 @@ export function RouteEditorMenu() {
       </div>
 
       {configOpen && (
-        <div className="pointer-events-auto fixed inset-0 z-[1100] grid place-items-center overflow-y-auto bg-black/40 px-4 py-5 backdrop-blur-sm">
+        <div className="pointer-events-auto fixed inset-0 z-[1100] grid place-items-center bg-black/40 px-4 backdrop-blur-sm">
           <div
             role="dialog"
             aria-modal="true"
             aria-labelledby="route-editor-config-title"
-            className="w-full max-w-lg rounded-2xl border border-border bg-card p-5 text-card-foreground shadow-2xl"
+            className="w-full max-w-md rounded-2xl border border-border bg-card p-5 text-card-foreground shadow-2xl"
           >
             <h2 id="route-editor-config-title" className="text-base font-semibold">
               Параметры маршрута
             </h2>
             <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-              Исходные точки — поставленные вручную. Достроенные точки — автоматически добавленные между ними для более плавной кривой.
+              Название можно поменять вручную перед сохранением. Точки маршрута: {routeEditorPoints.length}.
             </p>
 
             <div className="mt-5 space-y-4">
@@ -258,109 +335,31 @@ export function RouteEditorMenu() {
                 />
               </label>
 
-              <label className="flex cursor-pointer items-center justify-between gap-4 rounded-xl bg-background px-3 py-2.5">
-                <span>
-                  <span className="block text-sm font-medium">Достраивать точки между исходными</span>
-                  <span className="block text-xs text-muted-foreground">
-                    Сейчас: {sourcePointCount} исходн. + {generatedPointCount} достр. = {finalPointCount} точ.
-                  </span>
-                </span>
-                <input
-                  type="checkbox"
-                  checked={interpolationEnabled}
-                  onChange={(event) => setInterpolationEnabled(event.target.checked)}
-                  className="size-4"
-                />
-              </label>
-
-              <label className={interpolationEnabled ? "block space-y-1.5" : "block space-y-1.5 opacity-40 pointer-events-none"}>
-                <span className="text-sm font-medium">Коэффициент достраивания</span>
+              <label className="block space-y-1.5">
+                <span className="text-sm font-medium">Шаг перемещения, м</span>
                 <input
                   type="number"
-                  min={0}
-                  max={25}
+                  min={1}
+                  max={30000}
                   step={1}
-                  value={safeInterpolationFactor}
-                  disabled={!interpolationEnabled}
-                  onChange={(event) => setInterpolationFactor(Number(event.target.value))}
+                  value={safeStepMeters}
+                  onChange={(event) => setStepMeters(Number(event.target.value))}
                   className="h-10 w-full rounded-lg border border-border bg-background px-3 font-mono text-sm outline-none focus:ring-2 focus:ring-primary/25"
                 />
-                <span className="block text-xs text-muted-foreground">
-                  Сколько дополнительных точек вставлять между каждыми двумя исходными точками.
-                </span>
               </label>
 
-              <div className="rounded-xl border border-border bg-background/60 p-3">
-                <h3 className="text-sm font-semibold">Исходные точки</h3>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Эти параметры сохраняются для точек, которые пользователь поставил сам.
-                </p>
-
-                <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                  <label className="block space-y-1.5">
-                    <span className="text-xs font-medium">Шаг, м</span>
-                    <input
-                      type="number"
-                      min={1}
-                      max={30000}
-                      step={1}
-                      value={safeSourceStepMeters}
-                      onChange={(event) => setSourceStepMeters(Number(event.target.value))}
-                      className="h-10 w-full rounded-lg border border-border bg-card px-3 font-mono text-sm outline-none focus:ring-2 focus:ring-primary/25"
-                    />
-                  </label>
-
-                  <label className="block space-y-1.5">
-                    <span className="text-xs font-medium">Время шага, мс</span>
-                    <input
-                      type="number"
-                      min={1}
-                      max={300000}
-                      step={100}
-                      value={safeSourceIntervalMs}
-                      onChange={(event) => setSourceIntervalMs(Number(event.target.value))}
-                      className="h-10 w-full rounded-lg border border-border bg-card px-3 font-mono text-sm outline-none focus:ring-2 focus:ring-primary/25"
-                    />
-                  </label>
-                </div>
-              </div>
-
-              <div className={interpolationEnabled ? "rounded-xl border border-primary/30 bg-primary/5 p-3" : "rounded-xl border border-border bg-background/60 p-3 opacity-40 pointer-events-none"}>
-                <h3 className="text-sm font-semibold">Достроенные точки</h3>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  Эти параметры будут применяться как рабочий темп движения по сглаженному маршруту.
-                </p>
-
-                <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                  <label className="block space-y-1.5">
-                    <span className="text-xs font-medium">Шаг, м</span>
-                    <input
-                      type="number"
-                      min={1}
-                      max={30000}
-                      step={1}
-                      value={safeGeneratedStepMeters}
-                      disabled={!interpolationEnabled}
-                      onChange={(event) => setGeneratedStepMeters(Number(event.target.value))}
-                      className="h-10 w-full rounded-lg border border-border bg-card px-3 font-mono text-sm outline-none focus:ring-2 focus:ring-primary/25"
-                    />
-                  </label>
-
-                  <label className="block space-y-1.5">
-                    <span className="text-xs font-medium">Время шага, мс</span>
-                    <input
-                      type="number"
-                      min={1}
-                      max={300000}
-                      step={100}
-                      value={safeGeneratedIntervalMs}
-                      disabled={!interpolationEnabled}
-                      onChange={(event) => setGeneratedIntervalMs(Number(event.target.value))}
-                      className="h-10 w-full rounded-lg border border-border bg-card px-3 font-mono text-sm outline-none focus:ring-2 focus:ring-primary/25"
-                    />
-                  </label>
-                </div>
-              </div>
+              <label className="block space-y-1.5">
+                <span className="text-sm font-medium">Интервал между шагами, мс</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={300000}
+                  step={100}
+                  value={safeIntervalMs}
+                  onChange={(event) => setIntervalMs(Number(event.target.value))}
+                  className="h-10 w-full rounded-lg border border-border bg-background px-3 font-mono text-sm outline-none focus:ring-2 focus:ring-primary/25"
+                />
+              </label>
 
               <label className="flex cursor-pointer items-center justify-between gap-4 rounded-xl bg-background px-3 py-2.5">
                 <span>
@@ -393,16 +392,10 @@ export function RouteEditorMenu() {
                 onClick={() => {
                   saveRouteEditor({
                     name,
+                    stepMeters: safeStepMeters,
+                    intervalMs: safeIntervalMs,
                     autoMove,
                     routeLoop,
-                    interpolationEnabled,
-                    interpolationFactor: safeInterpolationFactor,
-                    sourceStepMeters: safeSourceStepMeters,
-                    sourceIntervalMs: safeSourceIntervalMs,
-                    generatedStepMeters: safeGeneratedStepMeters,
-                    generatedIntervalMs: safeGeneratedIntervalMs,
-                    stepMeters: interpolationEnabled ? safeGeneratedStepMeters : safeSourceStepMeters,
-                    intervalMs: interpolationEnabled ? safeGeneratedIntervalMs : safeSourceIntervalMs,
                   })
                   setConfigOpen(false)
                 }}
@@ -418,3 +411,39 @@ export function RouteEditorMenu() {
     </>
   )
 }
+`
+
+fs.writeFileSync(menuFile, routeEditorMenu, "utf8")
+
+// ---------- components/panels/settings-panel.tsx ----------
+
+if (!settings.includes("renameSavedRoute,")) {
+  settings = settings.replace(
+    `    applySavedRoute,
+    deleteSavedRoute,`,
+    `    applySavedRoute,
+    renameSavedRoute,
+    deleteSavedRoute,`
+  )
+}
+
+settings = settings.replace(
+  `<p className="truncate text-sm font-semibold">
+                          {route.name}
+                        </p>`,
+  `<input
+                          type="text"
+                          defaultValue={route.name}
+                          onBlur={(event) => renameSavedRoute(route.id, event.currentTarget.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") event.currentTarget.blur()
+                          }}
+                          className="h-7 w-full min-w-0 rounded-md border border-transparent bg-transparent px-1 text-sm font-semibold outline-none transition-colors hover:border-border hover:bg-card focus:border-primary focus:bg-card focus:ring-2 focus:ring-primary/20"
+                          aria-label={\`Название маршрута \${route.name}\`}
+                        />`
+)
+
+fs.writeFileSync(storeFile, store, "utf8")
+fs.writeFileSync(settingsFile, settings, "utf8")
+
+console.log("Route names now auto-resolve from first and last addresses and can be edited later")

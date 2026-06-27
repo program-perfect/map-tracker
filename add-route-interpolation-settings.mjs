@@ -1,4 +1,267 @@
-"use client"
+import fs from "node:fs"
+
+function replaceOnce(content, search, replacement, label) {
+  if (!content.includes(search)) {
+    throw new Error(`Cannot find block: ${label}`)
+  }
+  return content.replace(search, replacement)
+}
+
+const storeFile = "lib/store.tsx"
+const menuFile = "components/route-editor-menu.tsx"
+const settingsFile = "components/panels/settings-panel.tsx"
+
+let store = fs.readFileSync(storeFile, "utf8").replace(/\r\n/g, "\n")
+let menu = fs.readFileSync(menuFile, "utf8").replace(/\r\n/g, "\n")
+let settings = fs.readFileSync(settingsFile, "utf8").replace(/\r\n/g, "\n")
+
+// ---------- lib/store.tsx ----------
+
+const savedRouteType = `type SavedRoute = {
+  id: string
+  name: string
+  points: LatLng[]
+  sourcePoints?: LatLng[]
+  interpolationEnabled?: boolean
+  interpolationFactor?: number
+  sourceStepMeters?: number
+  sourceIntervalMs?: number
+  generatedStepMeters?: number
+  generatedIntervalMs?: number
+  stepMeters: number
+  intervalMs: number
+  routeLoop: boolean
+  createdAt: number
+  updatedAt: number
+}
+
+type RouteEditorSaveOptions = {
+  name?: string
+  stepMeters?: number
+  intervalMs?: number
+  autoMove?: boolean
+  routeLoop?: boolean
+  interpolationEnabled?: boolean
+  interpolationFactor?: number
+  sourceStepMeters?: number
+  sourceIntervalMs?: number
+  generatedStepMeters?: number
+  generatedIntervalMs?: number
+}`
+
+store = store.replace(/type SavedRoute = \{[\s\S]*?\n\}\n\ntype RouteEditorSaveOptions = \{[\s\S]*?\n\}/, savedRouteType)
+
+if (!store.includes("function clampRouteNumber")) {
+  store = replaceOnce(
+    store,
+    `function formatRoutePoints(points: LatLng[]) {`,
+    `function clampRouteNumber(value: unknown, min: number, max: number, fallback: number) {
+  const number = typeof value === "number" ? value : Number(value)
+  if (!Number.isFinite(number)) return fallback
+  return Math.max(min, Math.min(max, Math.round(number)))
+}
+
+function interpolateRoutePoints(points: LatLng[], factor: number) {
+  const safeFactor = clampRouteNumber(factor, 0, 25, 0)
+  if (points.length < 2 || safeFactor <= 0) return points
+
+  const next: LatLng[] = []
+
+  for (let i = 0; i < points.length - 1; i += 1) {
+    const from = points[i]
+    const to = points[i + 1]
+
+    next.push(from)
+
+    for (let j = 1; j <= safeFactor; j += 1) {
+      const t = j / (safeFactor + 1)
+      next.push([
+        from[0] + (to[0] - from[0]) * t,
+        from[1] + (to[1] - from[1]) * t,
+      ])
+    }
+  }
+
+  next.push(points[points.length - 1])
+  return next
+}
+
+function buildSavedRoutePoints(sourcePoints: LatLng[], interpolationEnabled?: boolean, interpolationFactor?: number) {
+  return interpolationEnabled
+    ? interpolateRoutePoints(sourcePoints, interpolationFactor ?? 0)
+    : sourcePoints
+}
+
+function formatRoutePoints(points: LatLng[]) {`,
+    "route interpolation helpers"
+  )
+}
+
+store = store.replace(
+  `points: KZ_SPB_ROUTE_POINTS,
+    stepMeters: DEFAULT_SETTINGS.stepMeters,
+    intervalMs: DEFAULT_SETTINGS.intervalMs,`,
+  `points: KZ_SPB_ROUTE_POINTS,
+    sourcePoints: KZ_SPB_ROUTE_POINTS,
+    interpolationEnabled: false,
+    interpolationFactor: 0,
+    sourceStepMeters: DEFAULT_SETTINGS.stepMeters,
+    sourceIntervalMs: DEFAULT_SETTINGS.intervalMs,
+    generatedStepMeters: DEFAULT_SETTINGS.stepMeters,
+    generatedIntervalMs: DEFAULT_SETTINGS.intervalMs,
+    stepMeters: DEFAULT_SETTINGS.stepMeters,
+    intervalMs: DEFAULT_SETTINGS.intervalMs,`
+)
+
+store = store.replace(
+  `return {
+    id: route.id,
+    name: typeof route.name === "string" && route.name.trim() ? route.name.trim() : "Маршрут",
+    points,
+    stepMeters: Math.max(1, Math.min(30_000, Math.round(route.stepMeters ?? DEFAULT_SETTINGS.stepMeters))),
+    intervalMs: Math.max(MIN_INTERVAL_MS, Math.min(MAX_INTERVAL_MS, Math.round(route.intervalMs ?? DEFAULT_SETTINGS.intervalMs))),
+    routeLoop: Boolean(route.routeLoop),
+    createdAt: typeof route.createdAt === "number" ? route.createdAt : now,
+    updatedAt: typeof route.updatedAt === "number" ? route.updatedAt : now,
+  }`,
+  `const sourcePoints = Array.isArray(route.sourcePoints)
+    ? route.sourcePoints.filter((point): point is LatLng => (
+        Array.isArray(point) &&
+        point.length === 2 &&
+        typeof point[0] === "number" &&
+        typeof point[1] === "number" &&
+        Number.isFinite(point[0]) &&
+        Number.isFinite(point[1]) &&
+        Math.abs(point[0]) <= 90 &&
+        Math.abs(point[1]) <= 180
+      ))
+    : points
+
+  const interpolationEnabled = Boolean(route.interpolationEnabled)
+  const interpolationFactor = clampRouteNumber(route.interpolationFactor, 0, 25, 0)
+  const sourceStepMeters = clampRouteNumber(route.sourceStepMeters ?? route.stepMeters, 1, 30_000, DEFAULT_SETTINGS.stepMeters)
+  const sourceIntervalMs = clampRouteNumber(route.sourceIntervalMs ?? route.intervalMs, MIN_INTERVAL_MS, MAX_INTERVAL_MS, DEFAULT_SETTINGS.intervalMs)
+  const generatedStepMeters = clampRouteNumber(route.generatedStepMeters ?? route.stepMeters, 1, 30_000, sourceStepMeters)
+  const generatedIntervalMs = clampRouteNumber(route.generatedIntervalMs ?? route.intervalMs, MIN_INTERVAL_MS, MAX_INTERVAL_MS, sourceIntervalMs)
+  const builtPoints = buildSavedRoutePoints(sourcePoints.length >= 2 ? sourcePoints : points, interpolationEnabled, interpolationFactor)
+
+  return {
+    id: route.id,
+    name: typeof route.name === "string" && route.name.trim() ? route.name.trim() : "Маршрут",
+    points: builtPoints,
+    sourcePoints: sourcePoints.length >= 2 ? sourcePoints : points,
+    interpolationEnabled,
+    interpolationFactor,
+    sourceStepMeters,
+    sourceIntervalMs,
+    generatedStepMeters,
+    generatedIntervalMs,
+    stepMeters: interpolationEnabled ? generatedStepMeters : sourceStepMeters,
+    intervalMs: interpolationEnabled ? generatedIntervalMs : sourceIntervalMs,
+    routeLoop: Boolean(route.routeLoop),
+    createdAt: typeof route.createdAt === "number" ? route.createdAt : now,
+    updatedAt: typeof route.updatedAt === "number" ? route.updatedAt : now,
+  }`
+)
+
+store = store.replace(
+  `const safeStepMeters = Math.max(1, Math.min(30_000, Math.round(options?.stepMeters ?? existing?.stepMeters ?? settingsRef.current.stepMeters ?? 5)))
+    const safeIntervalMs = Math.max(MIN_INTERVAL_MS, Math.min(MAX_INTERVAL_MS, Math.round(options?.intervalMs ?? existing?.intervalMs ?? settingsRef.current.intervalMs ?? DEFAULT_INTERVAL_MS)))
+    const routeLoop = options?.routeLoop ?? existing?.routeLoop ?? settingsRef.current.routeLoop ?? false
+    const routeName = (options?.name ?? existing?.name ?? \`Маршрут \${savedRoutesRef.current.length + 1}\`).trim() || "Маршрут"
+    const routeId = existing?.id ?? uid()
+    const start = points[0]
+
+    const savedRoute: SavedRoute = {
+      id: routeId,
+      name: routeName,
+      points,
+      stepMeters: safeStepMeters,
+      intervalMs: safeIntervalMs,
+      routeLoop,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    }`,
+  `const interpolationEnabled = options?.interpolationEnabled ?? existing?.interpolationEnabled ?? false
+    const interpolationFactor = clampRouteNumber(options?.interpolationFactor ?? existing?.interpolationFactor ?? 0, 0, 25, 0)
+
+    const sourceStepMeters = clampRouteNumber(
+      options?.sourceStepMeters ?? options?.stepMeters ?? existing?.sourceStepMeters ?? existing?.stepMeters ?? settingsRef.current.stepMeters ?? 5,
+      1,
+      30_000,
+      5
+    )
+    const sourceIntervalMs = clampRouteNumber(
+      options?.sourceIntervalMs ?? options?.intervalMs ?? existing?.sourceIntervalMs ?? existing?.intervalMs ?? settingsRef.current.intervalMs ?? DEFAULT_INTERVAL_MS,
+      MIN_INTERVAL_MS,
+      MAX_INTERVAL_MS,
+      DEFAULT_INTERVAL_MS
+    )
+    const generatedStepMeters = clampRouteNumber(
+      options?.generatedStepMeters ?? existing?.generatedStepMeters ?? sourceStepMeters,
+      1,
+      30_000,
+      sourceStepMeters
+    )
+    const generatedIntervalMs = clampRouteNumber(
+      options?.generatedIntervalMs ?? existing?.generatedIntervalMs ?? sourceIntervalMs,
+      MIN_INTERVAL_MS,
+      MAX_INTERVAL_MS,
+      sourceIntervalMs
+    )
+
+    const safeStepMeters = interpolationEnabled ? generatedStepMeters : sourceStepMeters
+    const safeIntervalMs = interpolationEnabled ? generatedIntervalMs : sourceIntervalMs
+    const routeLoop = options?.routeLoop ?? existing?.routeLoop ?? settingsRef.current.routeLoop ?? false
+    const routeName = (options?.name ?? existing?.name ?? \`Маршрут \${savedRoutesRef.current.length + 1}\`).trim() || "Маршрут"
+    const routeId = existing?.id ?? uid()
+    const sourcePoints = points
+    const builtPoints = buildSavedRoutePoints(sourcePoints, interpolationEnabled, interpolationFactor)
+    const start = builtPoints[0]
+
+    const savedRoute: SavedRoute = {
+      id: routeId,
+      name: routeName,
+      points: builtPoints,
+      sourcePoints,
+      interpolationEnabled,
+      interpolationFactor,
+      sourceStepMeters,
+      sourceIntervalMs,
+      generatedStepMeters,
+      generatedIntervalMs,
+      stepMeters: safeStepMeters,
+      intervalMs: safeIntervalMs,
+      routeLoop,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    }`
+)
+
+store = store.replaceAll(
+  `setRoutePointsText(formatRoutePoints(points))
+    setRoutePoints(points)
+    routePointsRef.current = points`,
+  `setRoutePointsText(formatRoutePoints(builtPoints))
+    setRoutePoints(builtPoints)
+    routePointsRef.current = builtPoints`
+)
+
+store = store.replaceAll(
+  `note: \`Сохранён маршрут «\${routeName}»: \${points.length} точ., шаг \${safeStepMeters} м, интервал \${safeIntervalMs} мс\`,`,
+  `note: \`Сохранён маршрут «\${routeName}»: \${sourcePoints.length} исходн. точ., \${builtPoints.length} итог. точ., шаг \${safeStepMeters} м, интервал \${safeIntervalMs} мс\`,`
+)
+
+store = store.replace(
+  `const initialPoints = Array.isArray(points) ? points.filter(Boolean) : []`,
+  `const initialPoints = Array.isArray(points) ? points.filter(Boolean) : []`
+)
+
+fs.writeFileSync(storeFile, store, "utf8")
+
+// ---------- components/route-editor-menu.tsx ----------
+
+const nextMenu = `"use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
 
@@ -18,7 +281,7 @@ function compactAddress(value: unknown, fallback: string) {
     .map((part) => part.trim())
     .filter(Boolean)
     .filter((part) => part !== "Россия" && part !== "Российская Федерация")
-    .filter((part) => !/^\d{5,6}$/.test(part))
+    .filter((part) => !/^\\d{5,6}$/.test(part))
 
   if (parts.length >= 3) return parts.slice(-2).join(", ")
   if (parts.length >= 1) return parts.slice(-2).join(", ")
@@ -113,7 +376,7 @@ export function RouteEditorMenu() {
 
     const first = routeEditorPoints[0]
     const last = routeEditorPoints[routeEditorPoints.length - 1]
-    const key = `${first[0]},${first[1]}|${last[0]},${last[1]}`
+    const key = \`\${first[0]},\${first[1]}|\${last[0]},\${last[1]}\`
 
     if (lastAutoNameKeyRef.current === key) return
     lastAutoNameKeyRef.current = key
@@ -123,8 +386,8 @@ export function RouteEditorMenu() {
     async function resolveName() {
       setNameResolving(true)
 
-      const firstFallback = `${first[0].toFixed(5)}, ${first[1].toFixed(5)}`
-      const lastFallback = `${last[0].toFixed(5)}, ${last[1].toFixed(5)}`
+      const firstFallback = \`\${first[0].toFixed(5)}, \${first[1].toFixed(5)}\`
+      const lastFallback = \`\${last[0].toFixed(5)}, \${last[1].toFixed(5)}\`
 
       const [from, to] = await Promise.all([
         reverseGeocodePoint(first, firstFallback),
@@ -133,7 +396,7 @@ export function RouteEditorMenu() {
 
       if (cancelled) return
 
-      setName(`${from} → ${to}`)
+      setName(\`\${from} → \${to}\`)
       setNameResolving(false)
     }
 
@@ -418,3 +681,22 @@ export function RouteEditorMenu() {
     </>
   )
 }
+`
+
+fs.writeFileSync(menuFile, nextMenu, "utf8")
+
+// ---------- components/panels/settings-panel.tsx ----------
+
+settings = settings.replace(
+  `{route.points.length} точ. · шаг {route.stepMeters} м · {route.intervalMs} мс`,
+  `{route.sourcePoints?.length ?? route.points.length} исходн. · {route.points.length} итог. · шаг {route.stepMeters} м · {route.intervalMs} мс`
+)
+
+settings = settings.replace(
+  `startRouteEditor(route.points, route.id)`,
+  `startRouteEditor(route.sourcePoints ?? route.points, route.id)`
+)
+
+fs.writeFileSync(settingsFile, settings, "utf8")
+
+console.log("Route interpolation settings added")
