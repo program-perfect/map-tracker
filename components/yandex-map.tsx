@@ -174,6 +174,8 @@ export function YandexMap() {
   const routeLineRef = useRef<any>(null)
   const destinationRef = useRef<any>(null)
   const routeEditorObjectsRef = useRef<any[]>([])
+  const nativeContextMenuCleanupRef = useRef<(() => void) | null>(null)
+  const lastRouteEditorPointAtRef = useRef(0)
   const [markerHost, setMarkerHost] = useState<HTMLElement | null>(null)
   const [mapRotationDeg, setMapRotationDeg] = useState(0)
   const mapRotationRef = useRef(0)
@@ -300,11 +302,77 @@ export function YandexMap() {
           const z = Math.round(map.getZoom())
           if (z !== zoomRef.current) setZoomRef.current(z)
         })
+        const addEditorPointSafely = (point: LatLng) => {
+          const now = Date.now()
+          if (now - lastRouteEditorPointAtRef.current < 120) return
+
+          lastRouteEditorPointAtRef.current = now
+          addRouteEditorPointRef.current(point)
+        }
+
+        const readMapEventPoint = (e: any): LatLng | null => {
+          try {
+            const coords: [number, number] | undefined = e.get("coords")
+            if (!coords || typeof coords[0] !== "number" || typeof coords[1] !== "number") return null
+            return [coords[0], coords[1]]
+          } catch {
+            return null
+          }
+        }
+
+        const handleEditorMapPoint = (e: any) => {
+          if (cancelled || !routeEditorActiveRef.current) return
+
+          try { e.preventDefault?.() } catch {}
+          try { e.stopPropagation?.() } catch {}
+
+          const point = readMapEventPoint(e)
+          if (!point) return
+
+          addEditorPointSafely(point)
+        }
+
         map.events.add("click", (e: any) => {
           if (cancelled) return
-          const coords: [number, number] = e.get("coords")
-          placeBeaconRef.current([coords[0], coords[1]])
+          const point = readMapEventPoint(e)
+          if (!point) return
+
+          if (routeEditorActiveRef.current) {
+            addEditorPointSafely(point)
+            return
+          }
+
+          placeBeaconRef.current(point)
         })
+
+        map.events.add("contextmenu", handleEditorMapPoint)
+        map.events.add("rightclick", handleEditorMapPoint)
+
+        const nativeContextTarget = rotationLayerRef.current ?? containerRef.current
+        const handleNativeContextMenu = (event: MouseEvent) => {
+          if (!routeEditorActiveRef.current) return
+
+          event.preventDefault()
+          event.stopPropagation()
+
+          const currentMap = mapRef.current
+          if (!currentMap) return
+
+          try {
+            const projection = currentMap.options.get("projection")
+            const globalPixels = currentMap.converter.pageToGlobal([event.pageX, event.pageY])
+            const coords = projection.fromGlobalPixels(globalPixels, currentMap.getZoom())
+
+            if (Array.isArray(coords) && typeof coords[0] === "number" && typeof coords[1] === "number") {
+              addEditorPointSafely([coords[0], coords[1]])
+            }
+          } catch {}
+        }
+
+        nativeContextTarget?.addEventListener("contextmenu", handleNativeContextMenu, { capture: true })
+        nativeContextMenuCleanupRef.current = () => {
+          nativeContextTarget?.removeEventListener("contextmenu", handleNativeContextMenu, { capture: true } as AddEventListenerOptions)
+        }
         const Layout = ymaps.templateLayoutFactory.createClass('<div id="beacon-layout-host" style="position:relative;width:0;height:0;overflow:visible;"></div>', {
           build() {
             Layout.superclass.build.call(this)
@@ -324,6 +392,9 @@ export function YandexMap() {
       .catch(() => { if (!cancelled) setStatus("error") })
     return () => {
       cancelled = true
+      nativeContextMenuCleanupRef.current?.()
+      nativeContextMenuCleanupRef.current = null
+
       if (mapRef.current) {
         try { mapRef.current.destroy() } catch {}
         mapRef.current = null

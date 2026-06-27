@@ -67,6 +67,7 @@ const DEFAULT_MARKER_SIZE = 30
 const MAX_MARKER_SIZE = 64
 const ROUTE_STREET_LABEL = "Маршрут Казахстан → Санкт-Петербург"
 const PERSISTED_BEACON_POSITION_KEY = "map-tracker:beacon-position:v1"
+const PERSISTED_ROUTES_KEY = "map-tracker:saved-routes:v1"
 const ROAD_SNAP_MAX_METERS = 2500
 const USER_LOCATION_STREET_LABEL = "Текущее местоположение"
 const INITIAL_GEOLOCATION_DONE_KEY = "map-tracker:initial-geolocation-done"
@@ -74,6 +75,25 @@ const INITIAL_GEOLOCATION_DONE_KEY = "map-tracker:initial-geolocation-done"
 type RouteCursor = {
   segmentIndex: number
   offsetMeters: number
+}
+
+type SavedRoute = {
+  id: string
+  name: string
+  points: LatLng[]
+  stepMeters: number
+  intervalMs: number
+  routeLoop: boolean
+  createdAt: number
+  updatedAt: number
+}
+
+type RouteEditorSaveOptions = {
+  name?: string
+  stepMeters?: number
+  intervalMs?: number
+  autoMove?: boolean
+  routeLoop?: boolean
 }
 
 const DEFAULT_SETTINGS: BeaconSettings = {
@@ -285,6 +305,82 @@ const INITIAL_GEOFENCES: Geofence[] = [
   { id: uid(), name: "Площадь Восстания", center: [59.9311, 30.3609], radius: 600, active: false, color: "#f59e0b", alertOnEnter: true, alertOnExit: false },
 ]
 
+const DEFAULT_SAVED_ROUTES: SavedRoute[] = [
+  {
+    id: "default-kz-spb",
+    name: "Казахстан → Санкт-Петербург",
+    points: KZ_SPB_ROUTE_POINTS,
+    stepMeters: DEFAULT_SETTINGS.stepMeters,
+    intervalMs: DEFAULT_SETTINGS.intervalMs,
+    routeLoop: DEFAULT_SETTINGS.routeLoop,
+    createdAt: 0,
+    updatedAt: 0,
+  },
+]
+
+function formatRoutePoints(points: LatLng[]) {
+  return points.map((point) => `${point[0].toFixed(6)}, ${point[1].toFixed(6)}`).join("\n")
+}
+
+function normalizeSavedRoute(value: unknown): SavedRoute | null {
+  if (!value || typeof value !== "object") return null
+
+  const route = value as Partial<SavedRoute>
+  const points = Array.isArray(route.points)
+    ? route.points.filter((point): point is LatLng => (
+        Array.isArray(point) &&
+        point.length === 2 &&
+        typeof point[0] === "number" &&
+        typeof point[1] === "number" &&
+        Number.isFinite(point[0]) &&
+        Number.isFinite(point[1]) &&
+        Math.abs(point[0]) <= 90 &&
+        Math.abs(point[1]) <= 180
+      ))
+    : []
+
+  if (!route.id || typeof route.id !== "string") return null
+  if (points.length < 2) return null
+
+  const now = Date.now()
+
+  return {
+    id: route.id,
+    name: typeof route.name === "string" && route.name.trim() ? route.name.trim() : "Маршрут",
+    points,
+    stepMeters: Math.max(1, Math.min(30_000, Math.round(route.stepMeters ?? DEFAULT_SETTINGS.stepMeters))),
+    intervalMs: Math.max(MIN_INTERVAL_MS, Math.min(MAX_INTERVAL_MS, Math.round(route.intervalMs ?? DEFAULT_SETTINGS.intervalMs))),
+    routeLoop: Boolean(route.routeLoop),
+    createdAt: typeof route.createdAt === "number" ? route.createdAt : now,
+    updatedAt: typeof route.updatedAt === "number" ? route.updatedAt : now,
+  }
+}
+
+function readPersistedSavedRoutes(): SavedRoute[] {
+  if (typeof window === "undefined") return DEFAULT_SAVED_ROUTES
+
+  try {
+    const raw = window.localStorage.getItem(PERSISTED_ROUTES_KEY)
+    if (!raw) return DEFAULT_SAVED_ROUTES
+
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return DEFAULT_SAVED_ROUTES
+
+    const routes = parsed.map(normalizeSavedRoute).filter((route): route is SavedRoute => route != null)
+    return routes.length > 0 ? routes : DEFAULT_SAVED_ROUTES
+  } catch {
+    return DEFAULT_SAVED_ROUTES
+  }
+}
+
+function writePersistedSavedRoutes(routes: SavedRoute[]) {
+  if (typeof window === "undefined") return
+
+  try {
+    window.localStorage.setItem(PERSISTED_ROUTES_KEY, JSON.stringify(routes))
+  } catch {}
+}
+
 function parseRoutePoints(text: string): LatLng[] {
   return text
     .split(/\n+/)
@@ -348,12 +444,16 @@ interface StoreValue {
   routeError: string | null
   routeEditorActive: boolean
   routeEditorPoints: LatLng[]
-  startRouteEditor: () => void
+  savedRoutes: SavedRoute[]
+  activeRouteId: string | null
+  startRouteEditor: (points?: LatLng[], routeId?: string | null) => void
   cancelRouteEditor: () => void
-  saveRouteEditor: () => void
+  saveRouteEditor: (options?: RouteEditorSaveOptions) => void
   addRouteEditorPoint: (point: LatLng) => void
   undoRouteEditorPoint: () => void
   clearRouteEditorPoints: () => void
+  applySavedRoute: (routeId: string, autoMove?: boolean) => void
+  deleteSavedRoute: (routeId: string) => void
   updateRoutePointsText: (text: string) => void
   applyRoutePointsText: () => void
   setRoutePathFromMap: (path: LatLng[]) => void
@@ -393,6 +493,9 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
   const [routeError, setRouteError] = useState<string | null>(null)
   const [routeEditorActive, setRouteEditorActive] = useState(false)
   const [routeEditorPoints, setRouteEditorPoints] = useState<LatLng[]>([])
+  const [routeEditorEditingId, setRouteEditorEditingId] = useState<string | null>(null)
+  const [savedRoutes, setSavedRoutes] = useState<SavedRoute[]>(DEFAULT_SAVED_ROUTES)
+  const [activeRouteId, setActiveRouteId] = useState<string | null>(DEFAULT_SAVED_ROUTES[0]?.id ?? null)
   const [storageReady, setStorageReady] = useState(false)
 
   const stepCountRef = useRef(0)
@@ -407,12 +510,14 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
   const geofencesRef = useRef(geofences)
   const routePathRef = useRef(routePath)
   const routePointsRef = useRef(routePoints)
+  const savedRoutesRef = useRef(savedRoutes)
   settingsRef.current = settings
   positionRef.current = position
   insideRef.current = insideGeofenceIds
   geofencesRef.current = geofences
   routePathRef.current = routePath
   routePointsRef.current = routePoints
+  savedRoutesRef.current = savedRoutes
 
   // POSITION_PERSISTENCE_BOOTSTRAP
   useEffect(() => {
@@ -601,7 +706,9 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
     evaluateGeofences(start)
   }, [evaluateGeofences, pushHistory, routePointsText])
 
-  const startRouteEditor = useCallback(() => {
+  const startRouteEditor = useCallback((points?: LatLng[], routeId?: string | null) => {
+    const initialPoints = Array.isArray(points) ? points.filter(Boolean) : []
+
     setSettings((prev) => ({
       ...prev,
       autoMove: false,
@@ -610,13 +717,27 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
     setMoving(false)
     setRouteError(null)
     setRouteStatus("idle")
-    setRouteEditorPoints([])
+    setRouteEditorPoints(initialPoints)
+    setRouteEditorEditingId(routeId ?? null)
     setRouteEditorActive(true)
+
+    const last = initialPoints[initialPoints.length - 1]
+    if (last) {
+      setPosition(last)
+      positionRef.current = last
+      currentNodeRef.current = nearestNode(last)
+      streetTargetNodeRef.current = null
+      routeCursorRef.current = { segmentIndex: 0, offsetMeters: 0 }
+      setSpeedKmh(0)
+      setStreet("Редактор маршрута")
+      setCenterRequest({ position: last, nonce: Date.now() })
+    }
   }, [])
 
   const cancelRouteEditor = useCallback(() => {
     setRouteEditorActive(false)
     setRouteEditorPoints([])
+    setRouteEditorEditingId(null)
     setRouteError(null)
     setRouteStatus(settingsRef.current.routeMode ? routeStatus : "idle")
   }, [routeStatus])
@@ -658,22 +779,15 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
     setRouteStatus("idle")
   }, [])
 
-  const saveRouteEditor = useCallback(() => {
-    const points = routeEditorPoints
+  const applySavedRoute = useCallback((routeId: string, autoMove = true) => {
+    const route = savedRoutesRef.current.find((item) => item.id === routeId)
+    if (!route || route.points.length < 2) return
 
-    if (points.length < 2) {
-      setRouteStatus("error")
-      setRouteError("Для маршрута нужно минимум две точки")
-      return
-    }
-
-    const text = points.map((point) => `${point[0].toFixed(6)}, ${point[1].toFixed(6)}`).join("\n")
+    const points = route.points
     const start = points[0]
 
-    setRouteEditorActive(false)
-    setRouteEditorPoints([])
-
-    setRoutePointsText(text)
+    setActiveRouteId(route.id)
+    setRoutePointsText(formatRoutePoints(points))
     setRoutePoints(points)
     routePointsRef.current = points
 
@@ -687,6 +801,11 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
     currentNodeRef.current = nearestNode(start)
     setSpeedKmh(0)
     setStreet(ROUTE_STREET_LABEL)
+    setCenterRequest({ position: start, nonce: Date.now() })
+
+    if (typeof writePersistedBeaconPosition === "function") {
+      writePersistedBeaconPosition(start)
+    }
 
     setRouteStatus("building")
     setRouteError(null)
@@ -695,8 +814,118 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
       ...prev,
       routeMode: true,
       followRoute: true,
-      autoMove: false,
+      autoMove,
+      routeLoop: route.routeLoop,
       scenarioEnabled: false,
+      stepMeters: route.stepMeters,
+      intervalMs: route.intervalMs,
+    }))
+    setMoving(autoMove)
+
+    pushHistory({
+      position: start,
+      speedKmh: 0,
+      street: ROUTE_STREET_LABEL,
+      event: "route",
+      note: `Выбран маршрут «${route.name}»`,
+    })
+
+    evaluateGeofences(start)
+  }, [evaluateGeofences, pushHistory])
+
+  const deleteSavedRoute = useCallback((routeId: string) => {
+    setSavedRoutes((prev) => {
+      const next = prev.filter((route) => route.id !== routeId)
+      const safeNext = next.length > 0 ? next : DEFAULT_SAVED_ROUTES
+      writePersistedSavedRoutes(safeNext)
+      savedRoutesRef.current = safeNext
+      return safeNext
+    })
+
+    setActiveRouteId((prev) => prev === routeId ? null : prev)
+    setRouteEditorEditingId((prev) => prev === routeId ? null : prev)
+  }, [])
+
+  const saveRouteEditor = useCallback((options?: RouteEditorSaveOptions) => {
+    const points = routeEditorPoints
+
+    if (points.length < 2) {
+      setRouteStatus("error")
+      setRouteError("Для маршрута нужно минимум две точки")
+      return
+    }
+
+    const now = Date.now()
+    const existing = routeEditorEditingId
+      ? savedRoutesRef.current.find((route) => route.id === routeEditorEditingId)
+      : null
+
+    const safeStepMeters = Math.max(1, Math.min(30_000, Math.round(options?.stepMeters ?? existing?.stepMeters ?? settingsRef.current.stepMeters ?? 5)))
+    const safeIntervalMs = Math.max(MIN_INTERVAL_MS, Math.min(MAX_INTERVAL_MS, Math.round(options?.intervalMs ?? existing?.intervalMs ?? settingsRef.current.intervalMs ?? DEFAULT_INTERVAL_MS)))
+    const routeLoop = options?.routeLoop ?? existing?.routeLoop ?? settingsRef.current.routeLoop ?? false
+    const routeName = (options?.name ?? existing?.name ?? `Маршрут ${savedRoutesRef.current.length + 1}`).trim() || "Маршрут"
+    const routeId = existing?.id ?? uid()
+    const start = points[0]
+
+    const savedRoute: SavedRoute = {
+      id: routeId,
+      name: routeName,
+      points,
+      stepMeters: safeStepMeters,
+      intervalMs: safeIntervalMs,
+      routeLoop,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    }
+
+    setSavedRoutes((prev) => {
+      const exists = prev.some((route) => route.id === routeId)
+      const next = exists
+        ? prev.map((route) => route.id === routeId ? savedRoute : route)
+        : [savedRoute, ...prev]
+
+      writePersistedSavedRoutes(next)
+      savedRoutesRef.current = next
+      return next
+    })
+
+    setActiveRouteId(routeId)
+    setRouteEditorActive(false)
+    setRouteEditorPoints([])
+    setRouteEditorEditingId(null)
+
+    setRoutePointsText(formatRoutePoints(points))
+    setRoutePoints(points)
+    routePointsRef.current = points
+
+    setRoutePath([])
+    routePathRef.current = []
+    routeCursorRef.current = { segmentIndex: 0, offsetMeters: 0 }
+    streetTargetNodeRef.current = null
+
+    setPosition(start)
+    positionRef.current = start
+    currentNodeRef.current = nearestNode(start)
+    setSpeedKmh(0)
+    setStreet(ROUTE_STREET_LABEL)
+    setCenterRequest({ position: start, nonce: Date.now() })
+
+    if (typeof writePersistedBeaconPosition === "function") {
+      writePersistedBeaconPosition(start)
+    }
+
+    setRouteStatus("building")
+    setRouteError(null)
+
+    setSettings((prev) => ({
+      ...prev,
+      routeMode: true,
+      followRoute: true,
+      autoMove: options?.autoMove ?? false,
+      routeLoop,
+      scenarioEnabled: false,
+      stepMeters: safeStepMeters,
+      intervalMs: safeIntervalMs,
     }))
     setMoving(false)
 
@@ -705,11 +934,11 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
       speedKmh: 0,
       street: ROUTE_STREET_LABEL,
       event: "route",
-      note: "Маршрут создан на карте",
+      note: `Сохранён маршрут «${routeName}»: ${points.length} точ., шаг ${safeStepMeters} м, интервал ${safeIntervalMs} мс`,
     })
 
     evaluateGeofences(start)
-  }, [evaluateGeofences, pushHistory, routeEditorPoints])
+  }, [evaluateGeofences, pushHistory, routeEditorEditingId, routeEditorPoints])
 
   const resetPosition = useCallback(() => {
     const start = KZ_SPB_ROUTE_POINTS[0]
@@ -1086,17 +1315,21 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
     routeError,
     routeEditorActive,
     routeEditorPoints,
+    savedRoutes,
+    activeRouteId,
     startRouteEditor,
     cancelRouteEditor,
     saveRouteEditor,
     addRouteEditorPoint,
     undoRouteEditorPoint,
     clearRouteEditorPoints,
+    applySavedRoute,
+    deleteSavedRoute,
     updateRoutePointsText,
     applyRoutePointsText,
     setRoutePathFromMap,
     setRouteBuildState,
-  }), [theme, toggleTheme, activePanel, layers, toggleLayer, zoom, setZoom, rotationMode, toggleRotationMode, heading, centerRequest, requestCenter, settings, updateSettings, resetSettings, resetPosition, position, speedKmh, street, moving, moveOnce, placeBeacon, objects, history, clearHistory, geofences, addGeofence, updateGeofence, removeGeofence, insideGeofenceIds, scenarios, addScenario, updateScenario, removeScenario, addScenarioStep, updateScenarioStep, removeScenarioStep, routePointsText, routePoints, routePath, routeStatus, routeError, routeEditorActive, routeEditorPoints, startRouteEditor, cancelRouteEditor, saveRouteEditor, addRouteEditorPoint, undoRouteEditorPoint, clearRouteEditorPoints, updateRoutePointsText, applyRoutePointsText, setRoutePathFromMap, setRouteBuildState])
+  }), [theme, toggleTheme, activePanel, layers, toggleLayer, zoom, setZoom, rotationMode, toggleRotationMode, heading, centerRequest, requestCenter, settings, updateSettings, resetSettings, resetPosition, position, speedKmh, street, moving, moveOnce, placeBeacon, objects, history, clearHistory, geofences, addGeofence, updateGeofence, removeGeofence, insideGeofenceIds, scenarios, addScenario, updateScenario, removeScenario, addScenarioStep, updateScenarioStep, removeScenarioStep, routePointsText, routePoints, routePath, routeStatus, routeError, routeEditorActive, routeEditorPoints, savedRoutes, activeRouteId, startRouteEditor, cancelRouteEditor, saveRouteEditor, addRouteEditorPoint, undoRouteEditorPoint, clearRouteEditorPoints, applySavedRoute, deleteSavedRoute, updateRoutePointsText, applyRoutePointsText, setRoutePathFromMap, setRouteBuildState])
 
   return <StoreContext value={value}>{children}</StoreContext>
 }
