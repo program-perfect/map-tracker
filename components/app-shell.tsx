@@ -287,7 +287,7 @@ export function AppShell() {
 
 function MobileMapStrip() {
   const { settings, speedKmh, street, moving, moveOnce } = useStore()
-  if (!settings.visible) return null
+  if (!settings.visible || !settings.mobileMapStripVisible) return null
   return (
     <div className="pointer-events-auto absolute inset-x-0 bottom-[84px] mx-2 flex animate-sheet-up items-center gap-3 rounded-xl bg-card/95 px-3 py-2.5 shadow-lg backdrop-blur-2xl">
       <span
