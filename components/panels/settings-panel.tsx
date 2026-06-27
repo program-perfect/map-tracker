@@ -35,6 +35,9 @@ const MAX_MARKER_SIZE = 64
 const MIN_INTERVAL_MS = 1
 const DEFAULT_INTERVAL_MS = 5_000
 const MAX_INTERVAL_MS = 5 * 60_000
+const MIN_STEP_METERS = 1
+const DEFAULT_STEP_METERS = 5
+const MAX_STEP_METERS = 30_000
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -69,6 +72,64 @@ function SliderRow({ label, value, display, min, max, step, onChange, disabled }
         <span className="tabular-nums text-muted-foreground">{display}</span>
       </div>
       <Slider value={value} min={min} max={max} step={step} disabled={disabled} onValueChange={(next) => onChange(getSliderNumber(next))} aria-label={label} />
+    </div>
+  )
+}
+
+function clampStepMeters(value: number) {
+  if (!Number.isFinite(value)) return DEFAULT_STEP_METERS
+  return Math.max(MIN_STEP_METERS, Math.min(MAX_STEP_METERS, Math.round(value)))
+}
+
+function MovementStepRow({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: number
+  onChange: (v: number) => void
+  disabled?: boolean
+}) {
+  const safeValue = clampStepMeters(value || DEFAULT_STEP_METERS)
+
+  return (
+    <div className={disabled ? "space-y-3 opacity-40 pointer-events-none" : "space-y-3"}>
+      <div className="flex items-center justify-between gap-2 text-sm">
+        <span className="font-medium">Шаг перемещения</span>
+        <div className="flex items-center gap-1">
+          <input
+            type="number"
+            min={MIN_STEP_METERS}
+            max={MAX_STEP_METERS}
+            step={1}
+            value={safeValue}
+            disabled={disabled}
+            onChange={(e) => {
+              const next = Number(e.target.value)
+              if (!Number.isNaN(next)) onChange(clampStepMeters(next))
+            }}
+            className="h-7 w-24 rounded-md bg-background px-2 text-right font-mono text-xs tabular-nums focus:outline-none focus:ring-1 focus:ring-ring"
+            aria-label="Шаг перемещения в метрах"
+          />
+          <span className="text-xs text-muted-foreground">м</span>
+        </div>
+      </div>
+
+      <Slider
+        value={safeValue}
+        min={MIN_STEP_METERS}
+        max={MAX_STEP_METERS}
+        step={1}
+        disabled={disabled}
+        onValueChange={(next) => onChange(clampStepMeters(getSliderNumber(next)))}
+        aria-label="Шаг перемещения"
+      />
+
+      <div className="flex justify-between text-[10px] text-muted-foreground">
+        <span>1 м</span>
+        <span className="tabular-nums">{safeValue} м</span>
+        <span>30 км</span>
+      </div>
     </div>
   )
 }
@@ -215,6 +276,13 @@ export function SettingsPanel() {
             <SliderRow label="Размер маркера" value={markerSize} display={`${markerSize} px`} min={MIN_MARKER_SIZE} max={MAX_MARKER_SIZE} step={2} onChange={(v) => updateSettings({ markerSize: v })} />
             <Divider />
             <ToggleRow label="Тёмная тема" desc="Синяя карта, тёмный интерфейс" checked={theme === "dark"} onChange={toggleTheme} />
+            <Divider />
+            <ToggleRow
+              label="Мобильная нижняя панель"
+              desc="Показывать на телефонах и планшетах карточку маяка с кнопкой «Сместить»"
+              checked={settings.mobileMapStripVisible}
+              onChange={(v) => updateSettings({ mobileMapStripVisible: v })}
+            />
           </Section>
 
           <Section title="Карта">
@@ -272,7 +340,7 @@ export function SettingsPanel() {
             <Divider />
             <ToggleRow label="Двигаться по дорогам" desc="В режиме маршрута используется красная дорожная линия; без него — локальный граф улиц" checked={settings.followRoute} onChange={(v) => updateSettings({ followRoute: v })} />
             <div className="space-y-2"><span className="text-sm font-medium">Направление</span><Select value={settings.direction} onValueChange={(v) => updateSettings({ direction: v as Direction })} disabled={settings.followRoute || settings.routeMode}><SelectTrigger className="w-full" aria-label="Направление движения"><SelectValue /></SelectTrigger><SelectContent>{DIRECTIONS.map((d) => <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>)}</SelectContent></Select></div>
-            <SliderRow label="Шаг перемещения" value={settings.stepMeters} display={`${settings.stepMeters} м`} min={1} max={30000} step={1} onChange={(v) => updateSettings({ stepMeters: v })} />
+            <MovementStepRow value={settings.stepMeters} onChange={(v) => updateSettings({ stepMeters: v })} />
           </Section>
 
           <Section title="Сценарии движения">

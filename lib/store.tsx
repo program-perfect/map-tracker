@@ -66,6 +66,7 @@ const MIN_MARKER_SIZE = 30
 const DEFAULT_MARKER_SIZE = 30
 const MAX_MARKER_SIZE = 64
 const ROUTE_STREET_LABEL = "Маршрут Казахстан → Санкт-Петербург"
+const ROAD_SNAP_MAX_METERS = 2500
 const USER_LOCATION_STREET_LABEL = "Текущее местоположение"
 const INITIAL_GEOLOCATION_DONE_KEY = "map-tracker:initial-geolocation-done"
 
@@ -76,7 +77,7 @@ type RouteCursor = {
 
 const DEFAULT_SETTINGS: BeaconSettings = {
   visible: true,
-  autoMove: false,
+  autoMove: true,
   intervalMs: DEFAULT_INTERVAL_MS,
   stepMeters: 5,
   direction: "NE",
@@ -98,6 +99,7 @@ const DEFAULT_SETTINGS: BeaconSettings = {
   beaconColor: LIGHT_DEFAULT_BEACON_COLOR,
   markerSize: DEFAULT_MARKER_SIZE,
   panelWidth: 340,
+  mobileMapStripVisible: false,
 }
 
 const DEFAULT_ZOOM = 5
@@ -185,10 +187,10 @@ const DEFAULT_SCENARIOS: Scenario[] = [
     name: "Казахстан → Санкт-Петербург",
     loop: false,
     steps: [
-      { id: uid(), delayMs: 1000, stepMeters: 18000, direction: null },
-      { id: uid(), delayMs: 1000, stepMeters: 18000, direction: null },
-      { id: uid(), delayMs: 2500, stepMeters: 0, direction: null },
-      { id: uid(), delayMs: 1000, stepMeters: 22000, direction: null },
+      { id: uid(), delayMs: 1000, stepMeters: 5, direction: null },
+      { id: uid(), delayMs: 1000, stepMeters: 5, direction: null },
+      { id: uid(), delayMs: 2500, stepMeters: 5, direction: null },
+      { id: uid(), delayMs: 1000, stepMeters: 5, direction: null },
     ],
   },
   {
@@ -196,11 +198,11 @@ const DEFAULT_SCENARIOS: Scenario[] = [
     name: "Патруль",
     loop: true,
     steps: [
-      { id: uid(), delayMs: 1000, stepMeters: 20, direction: null },
-      { id: uid(), delayMs: 1000, stepMeters: 20, direction: null },
+      { id: uid(), delayMs: 1000, stepMeters: 5, direction: null },
+      { id: uid(), delayMs: 1000, stepMeters: 5, direction: null },
       { id: uid(), delayMs: 3000, stepMeters: 5, direction: null },
-      { id: uid(), delayMs: 1000, stepMeters: 20, direction: null },
-      { id: uid(), delayMs: 5000, stepMeters: 0, direction: null },
+      { id: uid(), delayMs: 1000, stepMeters: 5, direction: null },
+      { id: uid(), delayMs: 5000, stepMeters: 5, direction: null },
     ],
   },
   {
@@ -208,11 +210,11 @@ const DEFAULT_SCENARIOS: Scenario[] = [
     name: "Быстрое движение",
     loop: true,
     steps: [
-      { id: uid(), delayMs: 500, stepMeters: 60, direction: null },
-      { id: uid(), delayMs: 500, stepMeters: 60, direction: null },
-      { id: uid(), delayMs: 500, stepMeters: 60, direction: null },
-      { id: uid(), delayMs: 500, stepMeters: 60, direction: null },
-      { id: uid(), delayMs: 2000, stepMeters: 10, direction: null },
+      { id: uid(), delayMs: 500, stepMeters: 5, direction: null },
+      { id: uid(), delayMs: 500, stepMeters: 5, direction: null },
+      { id: uid(), delayMs: 500, stepMeters: 5, direction: null },
+      { id: uid(), delayMs: 500, stepMeters: 5, direction: null },
+      { id: uid(), delayMs: 2000, stepMeters: 5, direction: null },
     ],
   },
   {
@@ -220,10 +222,10 @@ const DEFAULT_SCENARIOS: Scenario[] = [
     name: "Стой-иди",
     loop: true,
     steps: [
-      { id: uid(), delayMs: 2000, stepMeters: 30, direction: null },
-      { id: uid(), delayMs: 8000, stepMeters: 0, direction: null },
-      { id: uid(), delayMs: 2000, stepMeters: 30, direction: null },
-      { id: uid(), delayMs: 8000, stepMeters: 0, direction: null },
+      { id: uid(), delayMs: 2000, stepMeters: 5, direction: null },
+      { id: uid(), delayMs: 8000, stepMeters: 5, direction: null },
+      { id: uid(), delayMs: 2000, stepMeters: 5, direction: null },
+      { id: uid(), delayMs: 8000, stepMeters: 5, direction: null },
     ],
   },
 ]
@@ -469,7 +471,7 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
     setStreet(ROUTE_STREET_LABEL)
     setRouteStatus("building")
     setRouteError(null)
-    setSettings((prev) => ({ ...prev, routeMode: true, autoMove: false, scenarioEnabled: false }))
+    setSettings((prev) => ({ ...prev, routeMode: false, autoMove: true, scenarioEnabled: false }))
     pushHistory({ position: start, speedKmh: 0, street: ROUTE_STREET_LABEL, event: "route", note: "Точки маршрута применены" })
     evaluateGeofences(start)
   }, [evaluateGeofences, pushHistory, routePointsText])
@@ -587,7 +589,7 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
       } else {
         cursor = { segmentIndex: path.length - 1, offsetMeters: 0 }
         next = end
-        setSettings((prev) => ({ ...prev, autoMove: false, scenarioEnabled: false }))
+        setSettings((prev) => ({ ...prev, autoMove: true, scenarioEnabled: false }))
         setMoving(false)
         pushHistory({ position: end, speedKmh: 0, street: ROUTE_STREET_LABEL, event: "stop", note: "Маяк дошёл до точки назначения" })
       }
@@ -760,14 +762,14 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
   const removeGeofence = useCallback((id: string) => setGeofences((prev) => prev.filter((g) => g.id !== id)), [])
   const clearHistory = useCallback(() => setHistory([]), [])
 
-  const addScenario = useCallback(() => setScenarios((prev) => [...prev, { id: uid(), name: `Сценарий ${prev.length + 1}`, loop: true, steps: [{ id: uid(), delayMs: 1000, stepMeters: 20, direction: null }] }]), [])
+  const addScenario = useCallback(() => setScenarios((prev) => [...prev, { id: uid(), name: `Сценарий ${prev.length + 1}`, loop: true, steps: [{ id: uid(), delayMs: 1000, stepMeters: 5, direction: null }] }]), [])
   const updateScenario = useCallback((id: string, patch: Partial<Omit<Scenario, "id" | "steps">>) => setScenarios((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s))), [])
   const removeScenario = useCallback((id?: string) => {
     if (!id) return
     setScenarios((prev) => prev.filter((s) => s.id !== id))
     setSettings((prev) => ({ ...prev, activeScenarioId: prev.activeScenarioId === id ? null : prev.activeScenarioId, scenarioEnabled: prev.activeScenarioId === id ? false : prev.scenarioEnabled }))
   }, [])
-  const addScenarioStep = useCallback((scenarioId: string) => setScenarios((prev) => prev.map((s) => s.id === scenarioId ? { ...s, steps: [...s.steps, { id: uid(), delayMs: 1000, stepMeters: 20, direction: null }] } : s)), [])
+  const addScenarioStep = useCallback((scenarioId: string) => setScenarios((prev) => prev.map((s) => s.id === scenarioId ? { ...s, steps: [...s.steps, { id: uid(), delayMs: 1000, stepMeters: 5, direction: null }] } : s)), [])
   const updateScenarioStep = useCallback((scenarioId: string, stepId: string, patch: Partial<ScenarioStep>) => setScenarios((prev) => prev.map((s) => s.id === scenarioId ? { ...s, steps: s.steps.map((st) => st.id === stepId ? { ...st, ...patch } : st) } : s)), [])
   const removeScenarioStep = useCallback((scenarioId: string, stepId: string) => setScenarios((prev) => prev.map((s) => s.id === scenarioId ? { ...s, steps: s.steps.filter((st) => st.id !== stepId) } : s)), [])
 

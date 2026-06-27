@@ -91,4 +91,5 @@ export interface BeaconSettings {
   beaconColor: string
   markerSize: number
   panelWidth: number
+  mobileMapStripVisible: boolean
 }
