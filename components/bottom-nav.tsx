@@ -1,17 +1,26 @@
 "use client"
 
-import { Map, Boxes, History, Hexagon, Settings } from "lucide-react"
+import { Boxes, Hexagon, History, Map as MapIcon, Settings } from "lucide-react"
+
 import { useStore } from "@/lib/store"
 import type { PanelId } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
-export const NAV_ITEMS: { id: PanelId; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
-  { id: "map", label: "Карта", icon: Map },
+type NavItem = {
+  id: PanelId
+  label: string
+  icon: React.ComponentType<{ className?: string }>
+}
+
+export const NAV_ITEMS: NavItem[] = [
+  { id: "map", label: "Карта", icon: MapIcon },
   { id: "objects", label: "Объекты", icon: Boxes },
   { id: "history", label: "История", icon: History },
   { id: "geofences", label: "Геозоны", icon: Hexagon },
   { id: "settings", label: "Настройки", icon: Settings },
 ]
+
+const SAFE_NAV_ITEMS = NAV_ITEMS.filter((item): item is NavItem => Boolean(item?.id && item?.icon))
 
 export function BottomNav() {
   const { activePanel, setActivePanel } = useStore()
@@ -19,9 +28,10 @@ export function BottomNav() {
   return (
     <nav className="glass pointer-events-auto rounded-xl p-1 shadow-lg">
       <ul className="flex items-stretch justify-between gap-0.5">
-        {NAV_ITEMS.map((item) => {
+        {SAFE_NAV_ITEMS.map((item) => {
           const active = activePanel === item.id
-          const Icon = item.icon
+          const Icon = item.icon ?? MapIcon
+
           return (
             <li key={item.id} className="flex-1">
               <button
@@ -34,7 +44,7 @@ export function BottomNav() {
                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                   active
                     ? "text-primary-foreground"
-                    : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                    : "text-muted-foreground hover:bg-accent hover:text-foreground"
                 )}
               >
                 <Icon className={cn("size-5 transition-transform", active && "scale-110")} />

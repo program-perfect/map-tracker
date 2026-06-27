@@ -20,6 +20,7 @@ import { ALARM_SOUND_OPTIONS, playAlarm } from "@/lib/sound"
 import { getSliderNumber } from "@/lib/slider-value"
 import type { AlarmSoundId, Direction, RouteBuildStatus } from "@/lib/types"
 import { DisplayModeSettings } from "@/components/display-mode-settings"
+import { UiThemeSettings } from "@/components/ui-theme-settings"
 
 const DIRECTIONS: { value: Direction; label: string }[] = [
   { value: "N", label: "Север ↑" },
@@ -335,6 +336,7 @@ export function SettingsPanel() {
           </Section>
 
           <DisplayModeSettings />
+          <UiThemeSettings />
           <Section title="Сброс">
             <div className="space-y-3">
               <p className="text-xs leading-relaxed text-muted-foreground">

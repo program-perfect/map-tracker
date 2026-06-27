@@ -65,6 +65,57 @@ const LIGHT_DEFAULT_BEACON_COLOR = "#ef4444"
 const MIN_MARKER_SIZE = 30
 const DEFAULT_MARKER_SIZE = 30
 const MAX_MARKER_SIZE = 64
+
+const UI_THEME_PRESETS: Record<string, { primary: string; secondary: string; accent: string; primaryForeground: string }> = {
+  violet: {
+    primary: "#7c3aed",
+    secondary: "#a855f7",
+    accent: "color-mix(in oklch, #7c3aed 14%, var(--background))",
+    primaryForeground: "#ffffff",
+  },
+  cobalt: {
+    primary: "#2563eb",
+    secondary: "#06b6d4",
+    accent: "color-mix(in oklch, #2563eb 14%, var(--background))",
+    primaryForeground: "#ffffff",
+  },
+  emerald: {
+    primary: "#059669",
+    secondary: "#22c55e",
+    accent: "color-mix(in oklch, #059669 14%, var(--background))",
+    primaryForeground: "#ffffff",
+  },
+  amber: {
+    primary: "#d97706",
+    secondary: "#f59e0b",
+    accent: "color-mix(in oklch, #d97706 16%, var(--background))",
+    primaryForeground: "#111827",
+  },
+  rose: {
+    primary: "#e11d48",
+    secondary: "#f97316",
+    accent: "color-mix(in oklch, #e11d48 14%, var(--background))",
+    primaryForeground: "#ffffff",
+  },
+  cyan: {
+    primary: "#0891b2",
+    secondary: "#14b8a6",
+    accent: "color-mix(in oklch, #0891b2 14%, var(--background))",
+    primaryForeground: "#ffffff",
+  },
+  graphite: {
+    primary: "#475569",
+    secondary: "#111827",
+    accent: "color-mix(in oklch, #475569 16%, var(--background))",
+    primaryForeground: "#ffffff",
+  },
+  neon: {
+    primary: "#8b5cf6",
+    secondary: "#ec4899",
+    accent: "color-mix(in oklch, #8b5cf6 18%, var(--background))",
+    primaryForeground: "#ffffff",
+  },
+}
 const ROUTE_STREET_LABEL = "Маршрут Казахстан → Санкт-Петербург"
 const PERSISTED_BEACON_POSITION_KEY = "map-tracker:beacon-position:v1"
 const PERSISTED_ROUTES_KEY = "map-tracker:saved-routes:v1"
@@ -130,10 +181,27 @@ const DEFAULT_SETTINGS: BeaconSettings = {
   alarmSound: "warning",
   continuousAlarm: true,
   mapHue: 40,
+  mapDarkBrightness: 88,
+  mapDarkContrast: 100,
+  mapDarkSaturation: 130,
+  uiThemePreset: "violet",
+  customThemePrimary: "#7c3aed",
+  customThemeSecondary: "#a855f7",
+  customThemeAccent: "#ede9fe",
+  uiScale: 100,
+  uiDensity: 100,
+  uiRadius: 100,
+  uiBlur: 24,
   beaconColor: LIGHT_DEFAULT_BEACON_COLOR,
   markerSize: DEFAULT_MARKER_SIZE,
   panelWidth: 340,
   mobileMapStripVisible: false,
+}
+
+function clampSettingNumber(value: unknown, min: number, max: number, fallback: number) {
+  const number = typeof value === "number" ? value : Number(value)
+  if (!Number.isFinite(number)) return fallback
+  return Math.max(min, Math.min(max, Math.round(number)))
 }
 
 const DEFAULT_ZOOM = 5
@@ -685,12 +753,73 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
 
   useEffect(() => {
     const root = document.documentElement
+
+    const themePresetId = settings.uiThemePreset ?? "violet"
+    const preset = UI_THEME_PRESETS[themePresetId] ?? UI_THEME_PRESETS.violet
+    const primary = themePresetId === "custom" ? settings.customThemePrimary || preset.primary : preset.primary
+    const secondary = themePresetId === "custom" ? settings.customThemeSecondary || preset.secondary : preset.secondary
+    const accent = themePresetId === "custom" ? settings.customThemeAccent || preset.accent : preset.accent
+    const primaryForeground = preset.primaryForeground
+
+    const uiScale = clampSettingNumber(settings.uiScale, 80, 130, 100) / 100
+    const uiDensity = clampSettingNumber(settings.uiDensity, 80, 135, 100) / 100
+    const uiRadius = clampSettingNumber(settings.uiRadius, 40, 200, 100) / 100
+    const uiBlur = clampSettingNumber(settings.uiBlur, 0, 40, 24)
+
+    const mapDarkBrightness = clampSettingNumber(settings.mapDarkBrightness, 55, 130, 88) / 100
+    const mapDarkContrast = clampSettingNumber(settings.mapDarkContrast, 70, 150, 100) / 100
+    const mapDarkSaturation = clampSettingNumber(settings.mapDarkSaturation, 50, 180, 130) / 100
+
+    root.dataset.uiTheme = themePresetId
+    root.style.setProperty("--primary", primary)
+    root.style.setProperty("--primary-foreground", primaryForeground)
+    root.style.setProperty("--ring", primary)
+    root.style.setProperty("--accent", accent)
+    root.style.setProperty("--accent-foreground", "var(--foreground)")
+    root.style.setProperty("--secondary", `color-mix(in oklch, ${primary} 10%, var(--background))`)
+    root.style.setProperty("--secondary-foreground", "var(--foreground)")
+    root.style.setProperty("--sidebar-primary", primary)
+    root.style.setProperty("--sidebar-primary-foreground", primaryForeground)
+    root.style.setProperty("--sidebar-accent", accent)
+    root.style.setProperty("--chart-1", primary)
+    root.style.setProperty("--chart-4", secondary)
+    root.style.setProperty("--grad-primary", `linear-gradient(135deg, ${primary}, ${secondary})`)
+    root.style.setProperty("--glow-primary", `0 0 24px -4px color-mix(in oklch, ${primary} 52%, transparent), 0 0 48px -12px color-mix(in oklch, ${secondary} 34%, transparent)`)
+
+    root.style.setProperty("--ui-scale", String(uiScale))
+    root.style.setProperty("--ui-density", String(uiDensity))
+    root.style.setProperty("--ui-radius-scale", String(uiRadius))
+    root.style.setProperty("--radius", `${0.55 * uiRadius}rem`)
+    root.style.setProperty("--glass-blur", `${uiBlur}px`)
+    root.style.setProperty("--glass-strong-blur", `${Math.max(0, uiBlur + 8)}px`)
+
+    root.style.setProperty("--map-dark-brightness", String(mapDarkBrightness))
+    root.style.setProperty("--map-dark-contrast", String(mapDarkContrast))
+    root.style.setProperty("--map-dark-saturation", String(mapDarkSaturation))
+
     root.style.setProperty("--beacon-pulse-duration", `${settings.pulseDurationMs}ms`)
     root.style.setProperty("--beacon-pulse-scale", String(settings.pulseScale))
     root.style.setProperty("--map-hue", `${settings.mapHue}deg`)
     root.style.setProperty("--beacon-user-color", settings.beaconColor)
     root.style.setProperty("--beacon-marker-size", `${settings.markerSize ?? DEFAULT_MARKER_SIZE}px`)
-  }, [settings.pulseDurationMs, settings.pulseScale, settings.mapHue, settings.beaconColor, settings.markerSize])
+  }, [
+    settings.pulseDurationMs,
+    settings.pulseScale,
+    settings.mapHue,
+    settings.mapDarkBrightness,
+    settings.mapDarkContrast,
+    settings.mapDarkSaturation,
+    settings.beaconColor,
+    settings.markerSize,
+    settings.uiThemePreset,
+    settings.customThemePrimary,
+    settings.customThemeSecondary,
+    settings.customThemeAccent,
+    settings.uiScale,
+    settings.uiDensity,
+    settings.uiRadius,
+    settings.uiBlur,
+  ])
 
   const toggleTheme = useCallback(() => setTheme((t) => (t === "dark" ? "light" : "dark")), [])
   const toggleLayer = useCallback((l: MapLayer) => setLayers((prev) => ({ ...prev, [l]: !prev[l] })), [])
@@ -874,9 +1003,9 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
     const start = points[0]
 
     setActiveRouteId(route.id)
-    setRoutePointsText(formatRoutePoints(builtPoints))
-    setRoutePoints(builtPoints)
-    routePointsRef.current = builtPoints
+    setRoutePointsText(formatRoutePoints(points))
+    setRoutePoints(points)
+    routePointsRef.current = points
 
     setRoutePath([])
     routePathRef.current = []

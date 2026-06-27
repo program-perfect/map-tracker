@@ -144,6 +144,28 @@
 }
 
 @layer base {
+  /* UI sizing variables */
+  html {
+    font-size: clamp(13px, calc(16px * var(--ui-scale, 1)), 21px);
+  }
+
+  button,
+  input,
+  textarea,
+  select,
+  [role="button"],
+  [data-slot="select-trigger"] {
+    border-radius: calc(var(--radius) * var(--ui-radius-scale, 1));
+  }
+
+  button,
+  input:not([type="color"]),
+  textarea,
+  select,
+  [data-slot="select-trigger"] {
+    min-height: calc(2rem * var(--ui-density, 1));
+  }
+
   * {
     @apply border-border outline-ring/50;
   }
@@ -175,8 +197,8 @@
 
 .glass {
   background: var(--grad-panel);
-  backdrop-filter: blur(24px) saturate(1.5);
-  -webkit-backdrop-filter: blur(24px) saturate(1.5);
+  backdrop-filter: blur(var(--glass-blur, 24px)) saturate(1.5);
+  -webkit-backdrop-filter: blur(var(--glass-blur, 24px)) saturate(1.5);
   border: 0;
   box-shadow:
     0 8px 32px -12px color-mix(in oklch, var(--background) 64%, transparent),
@@ -185,8 +207,8 @@
 
 .glass-strong {
   background: var(--grad-panel);
-  backdrop-filter: blur(32px) saturate(1.6);
-  -webkit-backdrop-filter: blur(32px) saturate(1.6);
+  backdrop-filter: blur(var(--glass-strong-blur, 32px)) saturate(1.6);
+  -webkit-backdrop-filter: blur(var(--glass-strong-blur, 32px)) saturate(1.6);
   border: 0;
   box-shadow:
     0 16px 48px -18px color-mix(in oklch, var(--background) 72%, transparent),
@@ -232,7 +254,7 @@
   }
 }
 
-@media (max-width: 1023px), (prefers-reduced-transparency: reduce) {
+@media (max-width: 1023px) {
   .glass,
   .glass-strong {
     backdrop-filter: none;
@@ -242,7 +264,12 @@
 }
 
 .map-dark-filter {
-  filter: invert(92%) hue-rotate(var(--map-hue, 40deg)) saturate(1.3) brightness(0.88);
+  filter:
+    invert(92%)
+    hue-rotate(var(--map-hue, 40deg))
+    saturate(var(--map-dark-saturation, 1.3))
+    brightness(var(--map-dark-brightness, 0.88))
+    contrast(var(--map-dark-contrast, 1));
   transition: filter 0.4s ease;
 }
 

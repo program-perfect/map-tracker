@@ -1,15 +1,34 @@
 "use client"
 
-import { Navigation, Play, Pause, Hexagon, LogIn, LogOut, Trash2, Crosshair, MapPin } from "lucide-react"
-import { useStore } from "@/lib/store"
+import {
+  Crosshair,
+  Hexagon,
+  LogIn,
+  LogOut,
+  MapPin,
+  Navigation,
+  Pause,
+  Play,
+  Route as RouteIcon,
+  Trash2,
+} from "lucide-react"
+
 import { PanelHeader } from "@/components/panels/panel-header"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { useStore } from "@/lib/store"
 import type { HistoryEntry } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
-const EVENT_META: Record<
-  HistoryEntry["event"],
-  { icon: React.ComponentType<{ className?: string }>; tone: string }
+const FALLBACK_EVENT_META = {
+  icon: Navigation,
+  tone: "text-muted-foreground",
+}
+
+const EVENT_META: Partial<
+  Record<
+    HistoryEntry["event"],
+    { icon: React.ComponentType<{ className?: string }>; tone: string }
+  >
 > = {
   move: { icon: Navigation, tone: "text-primary" },
   start: { icon: Play, tone: "text-warm" },
@@ -17,6 +36,7 @@ const EVENT_META: Record<
   "geofence-enter": { icon: LogIn, tone: "text-primary" },
   "geofence-exit": { icon: LogOut, tone: "text-beacon" },
   manual: { icon: MapPin, tone: "text-warm" },
+  route: { icon: RouteIcon, tone: "text-primary" },
 }
 
 function timeFmt(at: number) {
@@ -25,6 +45,21 @@ function timeFmt(at: number) {
     minute: "2-digit",
     second: "2-digit",
   })
+}
+
+function safePosition(position: unknown): [number, number] {
+  if (
+    Array.isArray(position) &&
+    position.length === 2 &&
+    typeof position[0] === "number" &&
+    typeof position[1] === "number" &&
+    Number.isFinite(position[0]) &&
+    Number.isFinite(position[1])
+  ) {
+    return [position[0], position[1]]
+  }
+
+  return [0, 0]
 }
 
 export function HistoryPanel() {
@@ -47,6 +82,7 @@ export function HistoryPanel() {
           </button>
         }
       />
+
       <ScrollArea className="flex-1">
         {history.length === 0 ? (
           <div className="grid h-40 place-items-center px-6 text-center text-sm text-muted-foreground">
@@ -58,8 +94,10 @@ export function HistoryPanel() {
         ) : (
           <ol className="relative space-y-1 p-3">
             {history.map((entry) => {
-              const meta = EVENT_META[entry.event]
-              const Icon = meta.icon
+              const meta = EVENT_META[entry.event] ?? FALLBACK_EVENT_META
+              const Icon = meta.icon ?? Navigation
+              const position = safePosition(entry.position)
+
               return (
                 <li
                   key={entry.id}
@@ -68,6 +106,7 @@ export function HistoryPanel() {
                   <span className={cn("mt-0.5 grid size-7 shrink-0 place-items-center rounded-lg bg-card", meta.tone)}>
                     <Icon className="size-4" />
                   </span>
+
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between gap-2">
                       <p className="truncate text-sm font-medium">{entry.note ?? entry.street}</p>
@@ -75,15 +114,17 @@ export function HistoryPanel() {
                         {timeFmt(entry.at)}
                       </span>
                     </div>
+
                     <p className="truncate text-xs text-muted-foreground">
                       {entry.street} · {entry.speedKmh} км/ч ·{" "}
-                      {entry.position[0].toFixed(4)}, {entry.position[1].toFixed(4)}
+                      {position[0].toFixed(4)}, {position[1].toFixed(4)}
                     </p>
                   </div>
+
                   <button
                     type="button"
                     onClick={() => {
-                      requestCenter(entry.position)
+                      requestCenter(position)
                       setActivePanel("map")
                     }}
                     aria-label="Показать на карте"

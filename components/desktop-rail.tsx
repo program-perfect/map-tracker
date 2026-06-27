@@ -1,9 +1,12 @@
 "use client"
 
-import { Radar } from "lucide-react"
-import { useStore } from "@/lib/store"
+import { Map as MapIcon, Radar } from "lucide-react"
+
 import { NAV_ITEMS } from "@/components/bottom-nav"
+import { useStore } from "@/lib/store"
 import { cn } from "@/lib/utils"
+
+const SAFE_NAV_ITEMS = NAV_ITEMS.filter((item) => Boolean(item?.id && item?.icon))
 
 export function DesktopRail() {
   const { activePanel, setActivePanel } = useStore()
@@ -16,9 +19,11 @@ export function DesktopRail() {
       >
         <Radar className="size-5 text-primary-foreground" />
       </span>
-      {NAV_ITEMS.map((item) => {
+
+      {SAFE_NAV_ITEMS.map((item) => {
         const active = activePanel === item.id
-        const Icon = item.icon
+        const Icon = item.icon ?? MapIcon
+
         return (
           <button
             key={item.id}
@@ -32,7 +37,7 @@ export function DesktopRail() {
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               active
                 ? "text-primary-foreground"
-                : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                : "text-muted-foreground hover:bg-accent hover:text-foreground"
             )}
           >
             <Icon className="size-5" />

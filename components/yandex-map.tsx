@@ -445,64 +445,80 @@ export function YandexMap() {
     if (!map || !ymaps || status !== "ready") return
 
     const clearRoute = () => {
-      if (routeLineRef.current) { try { map.geoObjects.remove(routeLineRef.current) } catch {}; routeLineRef.current = null }
-      if (destinationRef.current) { try { map.geoObjects.remove(destinationRef.current) } catch {}; destinationRef.current = null }
+      if (routeLineRef.current) {
+        try { map.geoObjects.remove(routeLineRef.current) } catch {}
+        routeLineRef.current = null
+      }
+
+      if (destinationRef.current) {
+        try { map.geoObjects.remove(destinationRef.current) } catch {}
+        destinationRef.current = null
+      }
     }
 
     clearRoute()
+
     if (!settings.routeMode) {
       setRouteBuildStateRef.current("idle")
       return clearRoute
     }
+
     if (routePoints.length < 2) {
       setRouteBuildStateRef.current("error", "Need at least two route points")
       return clearRoute
     }
 
-    let cancelled = false
-    let routeTimer: number | null = null
-    let idleCallbackId: number | null = null
-    setRouteBuildStateRef.current("building")
+    try {
+      setRouteBuildStateRef.current("building")
 
-    const buildRoute = () => {
-      if (cancelled) return
-      void buildRoadRoute(ymaps, routePoints)
-        .then((coords) => {
-          if (cancelled) return
-          if (coords.length < 2) {
-            setRouteBuildStateRef.current("error", "No route geometry")
-            return
-          }
-          const routeLine = new ymaps.Polyline(coords, { hintContent: "KZ SPB" }, { strokeColor: ROUTE_COLOR, strokeOpacity: 0.96, strokeWidth: 4, strokeStyle: "solid" })
-          routeLineRef.current = routeLine
-          map.geoObjects.add(routeLine)
-          const destination = routePoints[routePoints.length - 1]
-          const destinationMarker = new ymaps.Placemark(destination, { hintContent: "SPB" }, { preset: "islands#redDotIcon", iconColor: ROUTE_COLOR })
-          destinationRef.current = destinationMarker
-          map.geoObjects.add(destinationMarker)
-          setRoutePathFromMapRef.current(coords)
-          try {
-            const bounds = routeLine.geometry.getBounds?.()
-            if (bounds) map.setBounds(bounds, { checkZoomRange: true, zoomMargin: 64, duration: 0 })
-          } catch {}
-        })
-        .catch(() => {
-          if (!cancelled) setRouteBuildStateRef.current("error", "No route geometry")
-        })
+      const line = new ymaps.Polyline(
+        routePoints,
+        { hintContent: "Маршрут" },
+        {
+          strokeColor: ROUTE_COLOR,
+          strokeOpacity: 0.96,
+          strokeWidth: 4,
+          strokeStyle: "solid",
+        }
+      )
+
+      routeLineRef.current = line
+      map.geoObjects.add(line)
+
+      const destination = routePoints[routePoints.length - 1]
+      const finish = new ymaps.Circle(
+        [destination, 32],
+        { hintContent: "Финиш маршрута" },
+        {
+          fillColor: ROUTE_COLOR,
+          fillOpacity: 0.32,
+          strokeColor: ROUTE_COLOR,
+          strokeWidth: 2,
+          strokeOpacity: 0.92,
+        }
+      )
+
+      destinationRef.current = finish
+      map.geoObjects.add(finish)
+
+      setRoutePathFromMapRef.current(routePoints)
+      setRouteBuildStateRef.current("ready", null)
+
+      try {
+        const bounds = line.geometry.getBounds?.()
+        if (bounds) {
+          map.setBounds(bounds, {
+            checkZoomRange: true,
+            zoomMargin: 64,
+            duration: 0,
+          })
+        }
+      } catch {}
+    } catch {
+      setRouteBuildStateRef.current("error", "Route render failed")
     }
 
-    if ("requestIdleCallback" in window) {
-      idleCallbackId = (window as any).requestIdleCallback(buildRoute, { timeout: STARTUP_ROUTE_DELAY_MS })
-    } else {
-      routeTimer = window.setTimeout(buildRoute, STARTUP_ROUTE_DELAY_MS)
-    }
-
-    return () => {
-      cancelled = true
-      if (idleCallbackId != null && "cancelIdleCallback" in window) (window as any).cancelIdleCallback(idleCallbackId)
-      if (routeTimer != null) window.clearTimeout(routeTimer)
-      clearRoute()
-    }
+    return clearRoute
   }, [routePoints, settings.routeMode, status])
 
   useEffect(() => {
@@ -547,19 +563,30 @@ export function YandexMap() {
     }
 
     routeEditorPoints.forEach((point, index) => {
-      const placemark = new ymaps.Placemark(
-        point,
+      const isStart = index === 0
+      const isFinish = index === routeEditorPoints.length - 1 && index > 0
+      const color = isStart ? "#a855f7" : isFinish ? ROUTE_COLOR : "#2563eb"
+
+      const circle = new ymaps.Circle(
+        [point, isStart || isFinish ? 34 : 24],
         {
-          iconContent: String(index + 1),
-          hintContent: index === 0 ? "Старт маршрута" : `Точка маршрута ${index + 1}`,
+          hintContent: isStart
+            ? "Старт маршрута"
+            : isFinish
+              ? "Финиш маршрута"
+              : `Точка маршрута ${index + 1}`,
         },
         {
-          preset: index === 0 ? "islands#violetStretchyIcon" : "islands#blueStretchyIcon",
+          fillColor: color,
+          fillOpacity: 0.38,
+          strokeColor: color,
+          strokeWidth: 2,
+          strokeOpacity: 0.95,
         }
       )
 
-      objects.push(placemark)
-      map.geoObjects.add(placemark)
+      objects.push(circle)
+      map.geoObjects.add(circle)
     })
 
     routeEditorObjectsRef.current = objects
