@@ -346,6 +346,14 @@ interface StoreValue {
   routePath: LatLng[]
   routeStatus: RouteBuildStatus
   routeError: string | null
+  routeEditorActive: boolean
+  routeEditorPoints: LatLng[]
+  startRouteEditor: () => void
+  cancelRouteEditor: () => void
+  saveRouteEditor: () => void
+  addRouteEditorPoint: (point: LatLng) => void
+  undoRouteEditorPoint: () => void
+  clearRouteEditorPoints: () => void
   updateRoutePointsText: (text: string) => void
   applyRoutePointsText: () => void
   setRoutePathFromMap: (path: LatLng[]) => void
@@ -383,6 +391,8 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
   const [routePath, setRoutePath] = useState<LatLng[]>([])
   const [routeStatus, setRouteStatus] = useState<RouteBuildStatus>("idle")
   const [routeError, setRouteError] = useState<string | null>(null)
+  const [routeEditorActive, setRouteEditorActive] = useState(false)
+  const [routeEditorPoints, setRouteEditorPoints] = useState<LatLng[]>([])
   const [storageReady, setStorageReady] = useState(false)
 
   const stepCountRef = useRef(0)
@@ -590,6 +600,116 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
     pushHistory({ position: start, speedKmh: 0, street: ROUTE_STREET_LABEL, event: "route", note: "Точки маршрута применены" })
     evaluateGeofences(start)
   }, [evaluateGeofences, pushHistory, routePointsText])
+
+  const startRouteEditor = useCallback(() => {
+    setSettings((prev) => ({
+      ...prev,
+      autoMove: false,
+      scenarioEnabled: false,
+    }))
+    setMoving(false)
+    setRouteError(null)
+    setRouteStatus("idle")
+    setRouteEditorPoints([])
+    setRouteEditorActive(true)
+  }, [])
+
+  const cancelRouteEditor = useCallback(() => {
+    setRouteEditorActive(false)
+    setRouteEditorPoints([])
+    setRouteError(null)
+    setRouteStatus(settingsRef.current.routeMode ? routeStatus : "idle")
+  }, [routeStatus])
+
+  const addRouteEditorPoint = useCallback((point: LatLng) => {
+    setRouteEditorPoints((prev) => [...prev, point])
+
+    setPosition(point)
+    positionRef.current = point
+    currentNodeRef.current = nearestNode(point)
+    streetTargetNodeRef.current = null
+    routeCursorRef.current = { segmentIndex: 0, offsetMeters: 0 }
+    setSpeedKmh(0)
+    setStreet("Редактор маршрута")
+  }, [])
+
+  const undoRouteEditorPoint = useCallback(() => {
+    setRouteEditorPoints((prev) => {
+      const next = prev.slice(0, -1)
+      const last = next[next.length - 1]
+
+      if (last) {
+        setPosition(last)
+        positionRef.current = last
+        currentNodeRef.current = nearestNode(last)
+        streetTargetNodeRef.current = null
+        routeCursorRef.current = { segmentIndex: 0, offsetMeters: 0 }
+        setSpeedKmh(0)
+        setStreet("Редактор маршрута")
+      }
+
+      return next
+    })
+  }, [])
+
+  const clearRouteEditorPoints = useCallback(() => {
+    setRouteEditorPoints([])
+    setRouteError(null)
+    setRouteStatus("idle")
+  }, [])
+
+  const saveRouteEditor = useCallback(() => {
+    const points = routeEditorPoints
+
+    if (points.length < 2) {
+      setRouteStatus("error")
+      setRouteError("Для маршрута нужно минимум две точки")
+      return
+    }
+
+    const text = points.map((point) => `${point[0].toFixed(6)}, ${point[1].toFixed(6)}`).join("\n")
+    const start = points[0]
+
+    setRouteEditorActive(false)
+    setRouteEditorPoints([])
+
+    setRoutePointsText(text)
+    setRoutePoints(points)
+    routePointsRef.current = points
+
+    setRoutePath([])
+    routePathRef.current = []
+    routeCursorRef.current = { segmentIndex: 0, offsetMeters: 0 }
+    streetTargetNodeRef.current = null
+
+    setPosition(start)
+    positionRef.current = start
+    currentNodeRef.current = nearestNode(start)
+    setSpeedKmh(0)
+    setStreet(ROUTE_STREET_LABEL)
+
+    setRouteStatus("building")
+    setRouteError(null)
+
+    setSettings((prev) => ({
+      ...prev,
+      routeMode: true,
+      followRoute: true,
+      autoMove: false,
+      scenarioEnabled: false,
+    }))
+    setMoving(false)
+
+    pushHistory({
+      position: start,
+      speedKmh: 0,
+      street: ROUTE_STREET_LABEL,
+      event: "route",
+      note: "Маршрут создан на карте",
+    })
+
+    evaluateGeofences(start)
+  }, [evaluateGeofences, pushHistory, routeEditorPoints])
 
   const resetPosition = useCallback(() => {
     const start = KZ_SPB_ROUTE_POINTS[0]
@@ -964,11 +1084,19 @@ export function BeaconStoreProvider({ children }: { children: React.ReactNode })
     routePath,
     routeStatus,
     routeError,
+    routeEditorActive,
+    routeEditorPoints,
+    startRouteEditor,
+    cancelRouteEditor,
+    saveRouteEditor,
+    addRouteEditorPoint,
+    undoRouteEditorPoint,
+    clearRouteEditorPoints,
     updateRoutePointsText,
     applyRoutePointsText,
     setRoutePathFromMap,
     setRouteBuildState,
-  }), [theme, toggleTheme, activePanel, layers, toggleLayer, zoom, setZoom, rotationMode, toggleRotationMode, heading, centerRequest, requestCenter, settings, updateSettings, resetSettings, resetPosition, position, speedKmh, street, moving, moveOnce, placeBeacon, objects, history, clearHistory, geofences, addGeofence, updateGeofence, removeGeofence, insideGeofenceIds, scenarios, addScenario, updateScenario, removeScenario, addScenarioStep, updateScenarioStep, removeScenarioStep, routePointsText, routePoints, routePath, routeStatus, routeError, updateRoutePointsText, applyRoutePointsText, setRoutePathFromMap, setRouteBuildState])
+  }), [theme, toggleTheme, activePanel, layers, toggleLayer, zoom, setZoom, rotationMode, toggleRotationMode, heading, centerRequest, requestCenter, settings, updateSettings, resetSettings, resetPosition, position, speedKmh, street, moving, moveOnce, placeBeacon, objects, history, clearHistory, geofences, addGeofence, updateGeofence, removeGeofence, insideGeofenceIds, scenarios, addScenario, updateScenario, removeScenario, addScenarioStep, updateScenarioStep, removeScenarioStep, routePointsText, routePoints, routePath, routeStatus, routeError, routeEditorActive, routeEditorPoints, startRouteEditor, cancelRouteEditor, saveRouteEditor, addRouteEditorPoint, undoRouteEditorPoint, clearRouteEditorPoints, updateRoutePointsText, applyRoutePointsText, setRoutePathFromMap, setRouteBuildState])
 
   return <StoreContext value={value}>{children}</StoreContext>
 }

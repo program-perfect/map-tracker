@@ -160,6 +160,9 @@ export function YandexMap() {
     routeStatus,
     setRoutePathFromMap,
     setRouteBuildState,
+    routeEditorActive,
+    routeEditorPoints,
+    addRouteEditorPoint,
   } = useStore()
 
   const containerRef = useRef<HTMLDivElement>(null)
@@ -170,6 +173,7 @@ export function YandexMap() {
   const trafficRef = useRef<any>(null)
   const routeLineRef = useRef<any>(null)
   const destinationRef = useRef<any>(null)
+  const routeEditorObjectsRef = useRef<any[]>([])
   const [markerHost, setMarkerHost] = useState<HTMLElement | null>(null)
   const [mapRotationDeg, setMapRotationDeg] = useState(0)
   const mapRotationRef = useRef(0)
@@ -186,6 +190,10 @@ export function YandexMap() {
   setRoutePathFromMapRef.current = setRoutePathFromMap
   const setRouteBuildStateRef = useRef(setRouteBuildState)
   setRouteBuildStateRef.current = setRouteBuildState
+  const routeEditorActiveRef = useRef(routeEditorActive)
+  routeEditorActiveRef.current = routeEditorActive
+  const addRouteEditorPointRef = useRef(addRouteEditorPoint)
+  addRouteEditorPointRef.current = addRouteEditorPoint
 
   const [status, setStatus] = useState<Status>(API_KEY ? "loading" : "error")
 
@@ -434,6 +442,63 @@ export function YandexMap() {
 
   useEffect(() => {
     const map = mapRef.current
+    const ymaps = window.ymaps
+    if (!map || !ymaps || status !== "ready") return
+
+    const clearEditorObjects = () => {
+      for (const object of routeEditorObjectsRef.current) {
+        try {
+          map.geoObjects.remove(object)
+        } catch {}
+      }
+      routeEditorObjectsRef.current = []
+    }
+
+    clearEditorObjects()
+
+    if (!routeEditorActive) return clearEditorObjects
+
+    const objects: any[] = []
+
+    if (routeEditorPoints.length >= 2) {
+      const line = new ymaps.Polyline(
+        routeEditorPoints,
+        { hintContent: "Редактор маршрута" },
+        {
+          strokeColor: "#a855f7",
+          strokeOpacity: 0.9,
+          strokeWidth: 4,
+          strokeStyle: "shortdash",
+        }
+      )
+      objects.push(line)
+      map.geoObjects.add(line)
+    }
+
+    routeEditorPoints.forEach((point, index) => {
+      const placemark = new ymaps.Placemark(
+        point,
+        {
+          iconContent: String(index + 1),
+          hintContent: index === 0 ? "Старт маршрута" : `Точка маршрута ${index + 1}`,
+        },
+        {
+          preset: index === 0 ? "islands#violetStretchyIcon" : "islands#blueStretchyIcon",
+        }
+      )
+
+      objects.push(placemark)
+      map.geoObjects.add(placemark)
+    })
+
+    routeEditorObjectsRef.current = objects
+
+    return clearEditorObjects
+  }, [routeEditorActive, routeEditorPoints, status])
+
+
+  useEffect(() => {
+    const map = mapRef.current
     if (!map || status !== "ready") return
     const fit = () => { try { map.container.fitToViewport() } catch {} }
     window.addEventListener("resize", fit)
@@ -465,7 +530,7 @@ export function YandexMap() {
   return (
     <div
       ref={rotationLayerRef}
-      className="absolute inset-0 overflow-hidden"
+      className={cn("absolute inset-0 overflow-hidden", routeEditorActive && "cursor-crosshair")}
       style={{ borderRadius: "inherit", touchAction: "none" }}
       onPointerDown={handleRotationPointerDown}
       onPointerMove={handleRotationPointerMove}
